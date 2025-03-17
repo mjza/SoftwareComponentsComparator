@@ -3,16 +3,33 @@ import sqlite3
 import requests
 import time
 import json
+import psycopg2
 from dotenv import load_dotenv
 
 
 # Load environment variables
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-DB_PATH = os.getenv("DB_PATH")
 BATCH_SIZE = 10
 REQUEST_COUNTER = 0
 MAX_REQUESTS = 4999
+
+
+# returns a db connection
+def get_connection(DBMS):
+    if DBMS == 'SQLITE':
+        conn = sqlite3.connect(os.getenv('DB_PATH'))
+    elif DBMS == 'POSTGRES':
+        conn = psycopg2.connect(
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
+        )
+    else:
+        raise ValueError("Unsupported DBMS")
+    return conn
 
 
 # Fetch rate limits from GitHub API
@@ -52,7 +69,7 @@ def safe_request(url, headers, params=None, max_retries=3, delay=5):
 
 # Create issues and comments tables if not exists
 def create_tables():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection('POSTGRES')
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS issues (
@@ -90,7 +107,7 @@ def create_tables():
             url TEXT,
             issue_id BIGINT,
             issue_url TEXT,
-            user TEXT,
+            owner TEXT,
             created_at TIMESTAMP WITH TIME ZONE,
             updated_at TIMESTAMP WITH TIME ZONE,
             author_association TEXT,
@@ -106,7 +123,7 @@ def create_tables():
 
 # Fetch project repositories in batches
 def fetch_projects():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection('SQLITE')
     cursor = conn.cursor()
     offset = 0
     
@@ -140,7 +157,7 @@ def fetch_github_issues(repo_url, project_id, repository_id):
     if not repo_url or "github.com" not in repo_url:
         return
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection('POSTGRES')
     repo_path = repo_url.replace("https://github.com/", "")
     api_url = f"https://api.github.com/repos/{repo_path}/issues"
     headers = {"Authorization": f"token {GITHUB_TOKEN}",
@@ -187,7 +204,8 @@ def fetch_github_issues(repo_url, project_id, repository_id):
         except Exception as e:
             print(f"Exception occurred while fetching issues for project {project_id}: {e}")
             has_more_pages = False  # Prevent further attempts to fetch pages
-            exit(1)
+    
+    conn.close()
 
 
 # Fetch comments from GitHub
@@ -195,7 +213,7 @@ def fetch_github_comments(issue_url, issue_id):
     if not issue_url or "github.com" not in issue_url:
         return
     
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_connection('POSTGRES')
     api_url = f"{issue_url}/comments"
     headers = {"Authorization": f"token {GITHUB_TOKEN}",
                'User-Agent': 'Mozilla/5.0',
@@ -236,7 +254,9 @@ def fetch_github_comments(issue_url, issue_id):
         except Exception as e:
             print(f"Exception occurred while fetching comments for issue {issue_id}: {e}")
             has_more_pages = False  # Prevent further attempts to fetch pages
-            exit(1)    
+            
+    conn.close()
+  
 
 
 # Insert issue data into database
@@ -245,7 +265,7 @@ def insert_issue_data(conn, issue_data):
     sql = """
     INSERT INTO issues 
     (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, body_text, reactions, state_reason) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(issue_id) DO UPDATE SET 
         url = EXCLUDED.url,
         project_id = EXCLUDED.project_id,
@@ -288,14 +308,14 @@ def insert_comment_data(conn, comment_data):
     cursor = conn.cursor()
     sql = """
     INSERT INTO comments 
-    (id, node_id, url, issue_id, issue_url, user, created_at, updated_at, author_association, body, body_text) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, node_id, url, issue_id, issue_url, owner, created_at, updated_at, author_association, body, body_text) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT(id) DO UPDATE SET 
         node_id = EXCLUDED.node_id,
         url = EXCLUDED.url,
         issue_id = EXCLUDED.issue_id,
         issue_url = EXCLUDED.issue_url,
-        user = EXCLUDED.user,
+        owner = EXCLUDED.owner,
         created_at = EXCLUDED.created_at,
         updated_at = EXCLUDED.updated_at,
         author_association = EXCLUDED.author_association,
