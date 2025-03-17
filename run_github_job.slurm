@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=Word2Vec
+#SBATCH --job-name=GitHubIssues
 #SBATCH --output=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_output_%j.log
 #SBATCH --error=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_error_%j.log
 #SBATCH --time=7-00:00:00  # 7 days
