@@ -1,2 +1,2 @@
 # SoftwareComponentComparator
-A repository for comparing OS components using AI 
+A repository for comparing OSS components using AI 
