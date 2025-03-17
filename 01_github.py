@@ -5,11 +5,50 @@ import time
 import json
 from dotenv import load_dotenv
 
+
 # Load environment variables
 load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DB_PATH = os.getenv("DB_PATH")
 BATCH_SIZE = 10
+REQUEST_COUNTER = 0
+MAX_REQUESTS = 4999
+
+
+# Fetch rate limits from GitHub API
+def get_rate_limits():
+    rate_limit_url = "https://api.github.com/rate_limit"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    response = requests.get(rate_limit_url, headers=headers)
+    if response and response.status_code == 200:
+        return response.json()['resources']['core']
+    return None
+
+
+# Safe request with rate limit handling
+def safe_request(url, headers, params=None, max_retries=3, delay=5):
+    global REQUEST_COUNTER
+    REQUEST_COUNTER += 1
+    
+    if REQUEST_COUNTER >= MAX_REQUESTS:
+        rate_limits = get_rate_limits()
+        if rate_limits and rate_limits['remaining'] == 0:
+            reset_time = rate_limits['reset']
+            sleep_duration = max(reset_time - time.time(), 1)
+            print(f"Rate limit reached. Sleeping for {sleep_duration} seconds.")
+            time.sleep(sleep_duration)
+            REQUEST_COUNTER = 0
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, headers=headers, params=params)
+            return response
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}. Attempt {attempt + 1} of {max_retries}. Retrying in {delay} seconds...")
+            time.sleep(delay)
+    print("All retry attempts failed.")
+    return None
+
 
 # Create issues and comments tables if not exists
 def create_tables():
@@ -38,6 +77,7 @@ def create_tables():
             author_association TEXT,
             active_lock_reason TEXT,
             body TEXT,
+            body_text TEXT,
             reactions TEXT,
             state_reason TEXT
         )
@@ -63,6 +103,7 @@ def create_tables():
     conn.commit()
     conn.close()
 
+
 # Fetch project repositories in batches
 def fetch_projects():
     conn = sqlite3.connect(DB_PATH)
@@ -79,6 +120,7 @@ def fetch_projects():
     
     conn.close()
 
+
 # Fetch repository ID from GitHub
 def fetch_repository_id(repo_url):
     repo_path = repo_url.replace("https://github.com/", "")
@@ -92,32 +134,6 @@ def fetch_repository_id(repo_url):
     print(f"Failed to fetch repository ID for {repo_url}: {response.status_code}")
     return None
 
-# Safe request with rate limit handling
-def safe_request(url, headers, params=None, max_retries=3, delay=5):
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers=headers, params=params)
-            if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers and int(response.headers['X-RateLimit-Remaining']) == 0:
-                reset_time = int(response.headers['X-RateLimit-Reset'])
-                sleep_duration = max(reset_time - time.time(), 1)
-                print(f"Rate limit exceeded. Sleeping for {sleep_duration} seconds.")
-                time.sleep(sleep_duration)
-                continue
-            return response
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}. Attempt {attempt + 1} of {max_retries}. Retrying in {delay} seconds...")
-            time.sleep(delay)
-    print("All retry attempts failed.")
-    return None
-
-# Fetch rate limits from GitHub API
-def get_rate_limits():
-    rate_limit_url = "https://api.github.com/rate_limit"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    response = safe_request(rate_limit_url, headers=headers)
-    if response and response.status_code == 200:
-        return response.json()['resources']['core']
-    return None
 
 # Fetch issues from GitHub
 def fetch_github_issues(repo_url, project_id, repository_id):
@@ -129,7 +145,7 @@ def fetch_github_issues(repo_url, project_id, repository_id):
     api_url = f"https://api.github.com/repos/{repo_path}/issues"
     headers = {"Authorization": f"token {GITHUB_TOKEN}",
                'User-Agent': 'Mozilla/5.0',
-               'Accept': 'application/vnd.github+json'}
+               'Accept': 'application/vnd.github.full+json'}
     params = {
                 'state': 'all',
                 'sort': 'created',
@@ -172,6 +188,7 @@ def fetch_github_issues(repo_url, project_id, repository_id):
             print(f"Exception occurred while fetching issues for project {project_id}: {e}")
             has_more_pages = False  # Prevent further attempts to fetch pages
             exit(1)
+
 
 # Fetch comments from GitHub
 def fetch_github_comments(issue_url, issue_id):
@@ -221,13 +238,14 @@ def fetch_github_comments(issue_url, issue_id):
             has_more_pages = False  # Prevent further attempts to fetch pages
             exit(1)    
 
+
 # Insert issue data into database
 def insert_issue_data(conn, issue_data):
     cursor = conn.cursor()
     sql = """
     INSERT INTO issues 
-    (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, reactions, state_reason) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, body_text, reactions, state_reason) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(issue_id) DO UPDATE SET 
         url = EXCLUDED.url,
         project_id = EXCLUDED.project_id,
@@ -249,6 +267,7 @@ def insert_issue_data(conn, issue_data):
         author_association = EXCLUDED.author_association,
         active_lock_reason = EXCLUDED.active_lock_reason,
         body = EXCLUDED.body,
+        body_text = EXCLUDED.body_text,
         reactions = EXCLUDED.reactions,
         state_reason = EXCLUDED.state_reason
     """
@@ -259,7 +278,7 @@ def insert_issue_data(conn, issue_data):
         json.dumps(issue_data.get('labels', [])), issue_data.get('state'), issue_data.get('locked'), 
         issue_data.get('comments'), issue_data.get('created_at'), 
         issue_data.get('updated_at'), issue_data.get('closed_at'), issue_data.get('author_association'), 
-        issue_data.get('active_lock_reason'), issue_data.get('body'), json.dumps(issue_data.get('reactions', {})), issue_data.get('state_reason')
+        issue_data.get('active_lock_reason'), issue_data.get('body'), issue_data.get('body_text'), json.dumps(issue_data.get('reactions', {})), issue_data.get('state_reason')
     ))
     conn.commit()
 
@@ -302,6 +321,7 @@ def main():
             repository_id = fetch_repository_id(repo_url)
             if repository_id:
                 fetch_github_issues(repo_url, project_id, repository_id)
+
     
 if __name__ == "__main__":
     main()
