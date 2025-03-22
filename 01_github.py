@@ -52,7 +52,7 @@ def safe_request(url, headers, params=None, max_retries=3, delay=5):
         if rate_limits and rate_limits['remaining'] == 0:
             reset_time = rate_limits['reset']
             sleep_duration = max(reset_time - time.time(), 1)
-            print(f"Rate limit reached. Sleeping for {sleep_duration} seconds.")
+            print(f"Rate limit reached. Sleeping for {sleep_duration} seconds.", flush=True)
             time.sleep(sleep_duration)
             REQUEST_COUNTER = 0
     
@@ -61,9 +61,9 @@ def safe_request(url, headers, params=None, max_retries=3, delay=5):
             response = requests.get(url, headers=headers, params=params)
             return response
         except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}. Attempt {attempt + 1} of {max_retries}. Retrying in {delay} seconds...")
+            print(f"Request failed: {e}. Attempt {attempt + 1} of {max_retries}. Retrying in {delay} seconds...", flush=True)
             time.sleep(delay)
-    print("All retry attempts failed.")
+    print("All retry attempts failed.", flush=True)
     return None
 
 
@@ -154,7 +154,7 @@ def fetch_repository_id(repo_url):
     response = safe_request(api_url, headers=headers)
     if response and response.status_code == 200:
         return response.json().get("id")
-    print(f"Failed to fetch repository ID for {repo_url}: {response.status_code}")
+    print(f"Failed to fetch repository ID for {repo_url}: {response.status_code}", flush=True)
     return None
 
 
@@ -195,21 +195,21 @@ def fetch_github_issues(repo_url, project_id, repository_id):
                         if issue.get('comments') > 0: # if the number of comments is greater than 0
                             fetch_github_comments(issue_url, issue.get('id', 0))
                     except Exception as e:
-                        print(f"Error processing issue {issue.get('id', 'Unknown')} for project {project_id}: {e}")
+                        print(f"Error processing issue {issue.get('id', 'Unknown')} for project {project_id}: {e}", flush=True)
                         exit(1)
-                print(f"Stored {len(issues)} issues for repository {repo_url}")
+                print(f"Stored {len(issues)} issues for repository {repo_url}", flush=True)
                 if 'next' in response.links:
                     params['page'] += 1
                 else:
                     has_more_pages = False
             elif response and response.status_code >= 400:
-                print(f"Failed to fetch issues for repository {api_url}. HTTP {response.status_code}, Error: {response.text}")
+                print(f"Failed to fetch issues for repository {api_url}. HTTP {response.status_code}, Error: {response.text}", flush=True)
                 has_more_pages = False
             else:
-                print(f"Failed to fetch issues for repository {api_url}. No response is available")
+                print(f"Failed to fetch issues for repository {api_url}. No response is available", flush=True)
                 has_more_pages = False
         except Exception as e:
-            print(f"Exception occurred while fetching issues for project {project_id}: {e}")
+            print(f"Exception occurred while fetching issues for project {project_id}: {e}", flush=True)
             has_more_pages = False  # Prevent further attempts to fetch pages
     
     conn.close()
@@ -246,20 +246,20 @@ def fetch_github_comments(issue_url, issue_id):
                         comment['issue_id'] = issue_id
                         insert_comment_data(conn, comment)
                     except Exception as e:
-                        print(f"Error processing comment {comment.get('id', 'Unknown')} for issue {issue_id}: {e}")
+                        print(f"Error processing comment {comment.get('id', 'Unknown')} for issue {issue_id}: {e}", flush=True)
                         exit(1)
                 if 'next' in response.links:
                     params['page'] += 1
                 else:
                     has_more_pages = False
             elif response and response.status_code >= 400:
-                print(f"Failed to fetch comments for repository {api_url}. HTTP {response.status_code}, Error: {response.text}")
+                print(f"Failed to fetch comments for repository {api_url}. HTTP {response.status_code}, Error: {response.text}", flush=True)
                 has_more_pages = False
             else:
-                print(f"Failed to fetch comments for repository {api_url}. No response is available")
+                print(f"Failed to fetch comments for repository {api_url}. No response is available", flush=True)
                 has_more_pages = False
         except Exception as e:
-            print(f"Exception occurred while fetching comments for issue {issue_id}: {e}")
+            print(f"Exception occurred while fetching comments for issue {issue_id}: {e}", flush=True)
             has_more_pages = False  # Prevent further attempts to fetch pages
             
     conn.close()
@@ -330,7 +330,7 @@ def insert_issue_data(conn, issue_data):
         cursor.execute(sql, values)
         conn.commit()
     except Exception as e:
-        print(f"[ERROR] Failed to insert issue {issue_data.get('id')}: {e}")
+        print(f"[ERROR] Failed to insert issue {issue_data.get('id')}: {e}", flush=True)
         conn.rollback()
 
 # Insert comment data into database
@@ -369,7 +369,7 @@ def insert_comment_data(conn, comment_data):
         cursor.execute(sql, )
         conn.commit()
     except Exception as e:
-        print(f"[ERROR] Failed to insert issue {comment_data.get('id')}: {e}")
+        print(f"[ERROR] Failed to insert issue {comment_data.get('id')}: {e}", flush=True)
         conn.rollback()
 
 # Main execution
