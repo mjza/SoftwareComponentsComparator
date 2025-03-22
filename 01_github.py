@@ -272,9 +272,7 @@ def insert_issue_data(conn, issue_data):
         cursor = conn.cursor()
         sql = """
         INSERT INTO issues 
-        (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, 
-        labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, 
-        body, body_text, reactions, state_reason) 
+        (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, body_text, reactions, state_reason) 
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT(issue_id) DO UPDATE SET 
             url = EXCLUDED.url,
@@ -301,7 +299,7 @@ def insert_issue_data(conn, issue_data):
             reactions = EXCLUDED.reactions,
             state_reason = EXCLUDED.state_reason
         """
-        values = (
+        cursor.execute(sql, (
             issue_data.get('id'), 
             issue_data.get('url'), 
             issue_data.get('project_id'), 
@@ -326,8 +324,7 @@ def insert_issue_data(conn, issue_data):
             issue_data.get('body_text'), 
             json.dumps(issue_data.get('reactions', {})), 
             issue_data.get('state_reason')
-        )
-        cursor.execute(sql, values)
+        ))
         conn.commit()
     except Exception as e:
         print(f"[ERROR] Failed to insert issue {issue_data.get('id')}: {e}", flush=True)
@@ -353,7 +350,7 @@ def insert_comment_data(conn, comment_data):
             body = EXCLUDED.body,
             body_text = EXCLUDED.body_text
         """
-        values = (
+        cursor.execute(sql, (
             comment_data.get('id'), 
             comment_data.get('node_id'), 
             comment_data.get('url'),
@@ -365,8 +362,7 @@ def insert_comment_data(conn, comment_data):
             comment_data.get('author_association'),
             comment_data.get('body'), 
             comment_data.get('body_text')
-        )
-        cursor.execute(sql, )
+        ))
         conn.commit()
     except Exception as e:
         print(f"[ERROR] Failed to insert issue {comment_data.get('id')}: {e}", flush=True)
