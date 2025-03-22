@@ -123,12 +123,18 @@ def create_tables():
 
 # Fetch project repositories in batches
 def fetch_projects():
-    conn = get_connection('SQLITE')
+    conn = get_connection('POSTGRES')
     cursor = conn.cursor()
     offset = 0
     
     while True:
-        cursor.execute("SELECT id, repository_url FROM projects LIMIT ? OFFSET ?", (BATCH_SIZE, offset))
+        cursor.execute("""SELECT p.id, p.repository_url FROM projects p 
+                            WHERE 
+                                p.repository_url IS NOT NULL 
+                            AND 
+                                p.id NOT IN (SELECT i.project_id FROM issues i) 
+                            ORDER BY id ASC LIMIT %s OFFSET %s """, 
+                            (BATCH_SIZE, offset))
         projects = cursor.fetchall()
         if not projects:
             break
@@ -186,7 +192,8 @@ def fetch_github_issues(repo_url, project_id, repository_id):
                         issue['repository_id'] = repository_id
                         issue_url = issue.get('url')
                         insert_issue_data(conn, issue)
-                        fetch_github_comments(issue_url, issue.get('id', 0))
+                        if issue.get('comments') > 0: # if the number of comments is greater than 0
+                            fetch_github_comments(issue_url, issue.get('id', 0))
                     except Exception as e:
                         print(f"Error processing issue {issue.get('id', 'Unknown')} for project {project_id}: {e}")
                         exit(1)
@@ -261,76 +268,109 @@ def fetch_github_comments(issue_url, issue_id):
 
 # Insert issue data into database
 def insert_issue_data(conn, issue_data):
-    cursor = conn.cursor()
-    sql = """
-    INSERT INTO issues 
-    (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, body_text, reactions, state_reason) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT(issue_id) DO UPDATE SET 
-        url = EXCLUDED.url,
-        project_id = EXCLUDED.project_id,
-        repository_id = EXCLUDED.repository_id,
-        repository_url = EXCLUDED.repository_url,
-        node_id = EXCLUDED.node_id,
-        number = EXCLUDED.number,
-        title = EXCLUDED.title,
-        owner = EXCLUDED.owner,
-        owner_type = EXCLUDED.owner_type,
-        owner_id = EXCLUDED.owner_id,
-        labels = EXCLUDED.labels,
-        state = EXCLUDED.state,
-        locked = EXCLUDED.locked,        
-        comments = EXCLUDED.comments,
-        created_at = EXCLUDED.created_at,
-        updated_at = EXCLUDED.updated_at,
-        closed_at = EXCLUDED.closed_at,
-        author_association = EXCLUDED.author_association,
-        active_lock_reason = EXCLUDED.active_lock_reason,
-        body = EXCLUDED.body,
-        body_text = EXCLUDED.body_text,
-        reactions = EXCLUDED.reactions,
-        state_reason = EXCLUDED.state_reason
-    """
-    cursor.execute(sql, (
-        issue_data.get('id'), issue_data.get('url'), issue_data.get('project_id'), issue_data.get('repository_id'), issue_data.get('repository_url'), 
-        issue_data.get('node_id'), issue_data.get('number'), issue_data.get('title'), issue_data.get('user', {}).get('login'), 
-        issue_data.get('user', {}).get('type'), issue_data.get('user', {}).get('id'),
-        json.dumps(issue_data.get('labels', [])), issue_data.get('state'), issue_data.get('locked'), 
-        issue_data.get('comments'), issue_data.get('created_at'), 
-        issue_data.get('updated_at'), issue_data.get('closed_at'), issue_data.get('author_association'), 
-        issue_data.get('active_lock_reason'), issue_data.get('body'), issue_data.get('body_text'), json.dumps(issue_data.get('reactions', {})), issue_data.get('state_reason')
-    ))
-    conn.commit()
-
+    try:
+        cursor = conn.cursor()
+        sql = """
+        INSERT INTO issues 
+        (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, 
+        labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, 
+        body, body_text, reactions, state_reason) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT(issue_id) DO UPDATE SET 
+            url = EXCLUDED.url,
+            project_id = EXCLUDED.project_id,
+            repository_id = EXCLUDED.repository_id,
+            repository_url = EXCLUDED.repository_url,
+            node_id = EXCLUDED.node_id,
+            number = EXCLUDED.number,
+            title = EXCLUDED.title,
+            owner = EXCLUDED.owner,
+            owner_type = EXCLUDED.owner_type,
+            owner_id = EXCLUDED.owner_id,
+            labels = EXCLUDED.labels,
+            state = EXCLUDED.state,
+            locked = EXCLUDED.locked,        
+            comments = EXCLUDED.comments,
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at,
+            closed_at = EXCLUDED.closed_at,
+            author_association = EXCLUDED.author_association,
+            active_lock_reason = EXCLUDED.active_lock_reason,
+            body = EXCLUDED.body,
+            body_text = EXCLUDED.body_text,
+            reactions = EXCLUDED.reactions,
+            state_reason = EXCLUDED.state_reason
+        """
+        values = (
+            issue_data.get('id'), 
+            issue_data.get('url'), 
+            issue_data.get('project_id'), 
+            issue_data.get('repository_id'), 
+            issue_data.get('repository_url'), 
+            issue_data.get('node_id'), 
+            issue_data.get('number'), 
+            issue_data.get('title'), 
+            issue_data.get('user', {}).get('login'), 
+            issue_data.get('user', {}).get('type'), 
+            issue_data.get('user', {}).get('id'),
+            json.dumps(issue_data.get('labels', [])), 
+            issue_data.get('state'), 
+            issue_data.get('locked'), 
+            issue_data.get('comments'), 
+            issue_data.get('created_at'), 
+            issue_data.get('updated_at'), 
+            issue_data.get('closed_at'), 
+            issue_data.get('author_association'), 
+            issue_data.get('active_lock_reason'), 
+            issue_data.get('body'), 
+            issue_data.get('body_text'), 
+            json.dumps(issue_data.get('reactions', {})), 
+            issue_data.get('state_reason')
+        )
+        cursor.execute(sql, values)
+        conn.commit()
+    except Exception as e:
+        print(f"[ERROR] Failed to insert issue {issue_data.get('id')}: {e}")
+        conn.rollback()
 
 # Insert comment data into database
 def insert_comment_data(conn, comment_data):
-    cursor = conn.cursor()
-    sql = """
-    INSERT INTO comments 
-    (id, node_id, url, issue_id, issue_url, owner, created_at, updated_at, author_association, body, body_text) 
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    ON CONFLICT(id) DO UPDATE SET 
-        node_id = EXCLUDED.node_id,
-        url = EXCLUDED.url,
-        issue_id = EXCLUDED.issue_id,
-        issue_url = EXCLUDED.issue_url,
-        owner = EXCLUDED.owner,
-        created_at = EXCLUDED.created_at,
-        updated_at = EXCLUDED.updated_at,
-        author_association = EXCLUDED.author_association,
-        body = EXCLUDED.body,
-        body_text = EXCLUDED.body_text
-    """
-    cursor.execute(sql, (
-        comment_data.get('id'), comment_data.get('node_id'), comment_data.get('url'),
-        comment_data.get('issue_id'), comment_data.get('issue_url'),
-        comment_data.get('user', {}).get('login'), comment_data.get('created_at'),
-        comment_data.get('updated_at'), comment_data.get('author_association'),
-        comment_data.get('body'), comment_data.get('body_text')
-    ))
-    conn.commit()
-    
+    try:
+        cursor = conn.cursor()
+        sql = """
+        INSERT INTO comments 
+        (id, node_id, url, issue_id, issue_url, owner, created_at, updated_at, author_association, body, body_text) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT(id) DO UPDATE SET 
+            node_id = EXCLUDED.node_id,
+            url = EXCLUDED.url,
+            issue_id = EXCLUDED.issue_id,
+            issue_url = EXCLUDED.issue_url,
+            owner = EXCLUDED.owner,
+            created_at = EXCLUDED.created_at,
+            updated_at = EXCLUDED.updated_at,
+            author_association = EXCLUDED.author_association,
+            body = EXCLUDED.body,
+            body_text = EXCLUDED.body_text
+        """
+        values = (
+            comment_data.get('id'), 
+            comment_data.get('node_id'), 
+            comment_data.get('url'),
+            comment_data.get('issue_id'), 
+            comment_data.get('issue_url'),
+            comment_data.get('user', {}).get('login'), 
+            comment_data.get('created_at'),
+            comment_data.get('updated_at'), 
+            comment_data.get('author_association'),
+            comment_data.get('body'), 
+            comment_data.get('body_text')
+        )
+        cursor.execute(sql, )
+        conn.commit()
+    except Exception as e:
+        print(f"[ERROR] Failed to insert issue {comment_data.get('id')}: {e}")
+        conn.rollback()
 
 # Main execution
 def main():
