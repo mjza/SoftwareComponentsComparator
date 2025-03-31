@@ -1,3 +1,14 @@
 requests 
 python-dotenv
 psycopg2-binary
+torch 
+torchvision 
+torchaudio
+pandas 
+numpy 
+regex 
+matplotlib 
+seaborn 
+tqdm 
+datasets 
+transformers
