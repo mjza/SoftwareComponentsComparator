@@ -11,7 +11,7 @@
 
 ####### Load Modules & Virtual Environment #######
 module load python/3.12.5
-module load cuda/11.7
+module load cuda/12.6.2
 
 VENV_DIR="/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/senv"
 if [ ! -d "$VENV_DIR" ]; then
