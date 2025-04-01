@@ -2,7 +2,7 @@
 #SBATCH --job-name=gpu_test
 #SBATCH --output=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_output_%j.log
 #SBATCH --error=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_error_%j.log
-#SBATCH --time=0-04:55:00  # 4 hours 55 minutes
+#SBATCH --time=1-00:00:00  # 1 day
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=128G
