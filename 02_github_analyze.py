@@ -19,8 +19,13 @@ class QualityAttributeAnalyzer:
         self.tokenizer=AutoTokenizer.from_pretrained(embedding_model)
         self.model=AutoModel.from_pretrained(embedding_model).to(self.device)
         self.sentiment_tokenizer=AutoTokenizer.from_pretrained(sentiment_model)
+        self.sentiment_model=AutoModel.from_pretrained(sentiment_model).to(self.device)
         self.sentiment_analyzer=pipeline('sentiment-analysis',model=sentiment_model,tokenizer=self.sentiment_tokenizer,device=0 if self.device=='cuda:0' else -1,batch_size=batch_size,max_length=512,truncation=True)
-        self.quality_attrs=None;self.quality_attr_embeddings=None;self.quality_dict=None;self.w2v_scores={}
+        self.w2v_scores={}
+        self.similar_word_embeddings=None
+        self.similar_word_index={}
+        self.similar_word_to_criteria={}
+        self.quality_dict={}
         self.reason_cache={}
         self.pos_words=["good","great","excellent","benefit","like","love","improve","better","fix","solve","easy","useful","solved","success","fast"]
         self.neg_words=["bad","poor","issue","bug","problem","difficult","fail","crash","error","slow","breaks","broken","missing","cannot","wrong"]
@@ -101,23 +106,24 @@ class QualityAttributeAnalyzer:
         return f"{content_prefix.get(content_type,content_prefix['general'])} {context}"
     def batch_sentiment_analysis(self,texts,quality_attrs):
         if not texts:return [],[]
-        data={"text":[],"quality_attr":[]}
-        valid_indices=[]
-        for i,(text,qa) in enumerate(zip(texts,quality_attrs)):
+        data=[]
+        for text,qa in zip(texts,quality_attrs):
             if not self.check_valid_text(text):
-                data["text"].append("Invalid content");data["quality_attr"].append(qa)
-                valid_indices.append(i)
-                continue
-            clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text);clean_text=re.sub(r'\s+',' ',clean_text).strip()
-            truncated_text=self.tokenizer.decode(self.tokenizer.encode(clean_text,truncation=True,max_length=512))
-            data["text"].append(truncated_text);data["quality_attr"].append(qa)
-            valid_indices.append(i)
-        sentiment_results=self.sentiment_analyzer(data["text"])
+                clean_text="Invalid content"
+            else:
+                clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text)
+                clean_text=re.sub(r'\s+',' ',clean_text).strip()
+                if len(clean_text)>512:
+                    clean_text=clean_text[:512]
+            data.append({"text":clean_text,"quality_attr":qa})
+        dataset=Dataset.from_list(data)
+        texts_to_process=[d["text"] for d in data]
+        results=self.sentiment_analyzer(texts_to_process,batch_size=self.batch_size)
         sentiments=[];reasons=[]
-        for i,(text,qa,result) in enumerate(zip(data["text"],data["quality_attr"],sentiment_results)):
+        for i,(result,qa) in enumerate(zip(results,quality_attrs)):
             sentiment='+' if result['label']=='POSITIVE' else '-'
             confidence=result['score']
-            reason=self.generate_reason(text,qa,sentiment,confidence)
+            reason=self.generate_reason(texts_to_process[i],qa,sentiment,confidence)
             sentiments.append(sentiment);reasons.append(reason)
         return sentiments,reasons
     def get_bert_embeddings(self,texts):
@@ -141,12 +147,9 @@ class QualityAttributeAnalyzer:
     def prepare_quality_attributes(self,quality_attr_df):
         logger.info("Preparing quality attributes...")
         logger.info(f"Quality attributes columns: {quality_attr_df.columns.tolist()}")
-        self.quality_attrs=quality_attr_df['criteria'].unique().tolist()
-        logger.info(f"Found {len(self.quality_attrs)} unique quality attributes")
-        quality_attr_texts=[f"Software quality attribute: {attr}" for attr in self.quality_attrs]
-        self.quality_attr_embeddings=self.get_bert_embeddings(quality_attr_texts)
         self.quality_dict={}
         self.w2v_scores={}
+        self.similar_word_to_criteria={}
         score_column=None
         for col in quality_attr_df.columns:
             if 'w2v' in col.lower() and 'score' in col.lower():
@@ -155,12 +158,20 @@ class QualityAttributeAnalyzer:
                 break
         if not score_column:
             logger.warning("Could not find max_w2v_score column, using default value 1.0")
-            score_column=None
+        all_similar_words=[]
         for _,row in quality_attr_df.iterrows():
-            if row['criteria'] not in self.quality_dict:self.quality_dict[row['criteria']]=[]
-            self.quality_dict[row['criteria']].append(row['similar_word'])
-            if score_column:self.w2v_scores[(row['criteria'],row['similar_word'])]=row[score_column]
-            else:self.w2v_scores[(row['criteria'],row['similar_word'])]=1.0
+            criteria=row['criteria']
+            similar_word=row['similar_word']
+            if criteria not in self.quality_dict:self.quality_dict[criteria]=[]
+            self.quality_dict[criteria].append(similar_word)
+            self.similar_word_to_criteria[similar_word]=criteria
+            all_similar_words.append(similar_word)
+            if score_column:self.w2v_scores[(criteria,similar_word)]=row[score_column]
+            else:self.w2v_scores[(criteria,similar_word)]=1.0
+        logger.info(f"Computing embeddings for {len(all_similar_words)} similar words")
+        similar_word_texts=[f"Software quality attribute: {word}" for word in all_similar_words]
+        self.similar_word_embeddings=self.get_bert_embeddings(similar_word_texts)
+        self.similar_word_index={word:idx for idx,word in enumerate(all_similar_words)}
     def process_project(self,project_id,project_df):
         start_time=pd.Timestamp.now()
         logger.info(f"Started processing project {project_id} at {start_time}")
@@ -179,44 +190,60 @@ class QualityAttributeAnalyzer:
             issue_dict[issue_id].append(text_to_idx[text_hash])
         if not project_texts:logger.info(f"No texts found for project {project_id}");return []
         project_embeddings=self.get_bert_embeddings(project_texts)
-        similar_word_matches={}
-        for criteria,similar_words in self.quality_dict.items():
-            for similar_word in similar_words:
-                similar_word_text=f"Software quality attribute: {similar_word}"
-                similar_word_embedding=self.get_bert_embeddings([similar_word_text])[0].to(self.device)
-                similar_word_embedding=similar_word_embedding.unsqueeze(0)
-                similar_word_embedding=F.normalize(similar_word_embedding,p=2,dim=1)
-                for i in range(0,len(project_texts),32):
-                    end_idx=min(i+32,len(project_texts))
-                    batch_proj_emb=project_embeddings[i:end_idx].to(self.device)
-                    batch_proj_emb=F.normalize(batch_proj_emb,p=2,dim=1)
-                    batch_similarities=torch.mm(batch_proj_emb,similar_word_embedding.t())
-                    for text_idx in range(batch_similarities.size(0)):
-                        similarity=batch_similarities[text_idx,0].item()
-                        if similarity>self.similarity_threshold:
-                            global_text_idx=i+text_idx
-                            for issue_id,text_indices in issue_dict.items():
-                                if global_text_idx in text_indices:
-                                    w2v_score=self.w2v_scores.get((criteria,similar_word),1.0)
-                                    adjusted_similarity=similarity*w2v_score
-                                    key=(criteria,issue_id)
-                                    if key not in similar_word_matches:
-                                        similar_word_matches[key]={"similar_words":[],"sentiments":[],"scores":[]}
-                                    similar_word_matches[key]["similar_words"].append(similar_word)
-                                    similar_word_matches[key]["scores"].append(adjusted_similarity)
-                                    similar_word_matches[key]["text_idx"]=global_text_idx
-                    del batch_proj_emb,batch_similarities
-                    if self.device.startswith('cuda'):torch.cuda.empty_cache()
-        for key,data in similar_word_matches.items():
-            criteria,issue_id=key
+        matches={}
+        chunk_size=32
+        for i in range(0,len(project_texts),chunk_size):
+            end_idx=min(i+chunk_size,len(project_texts))
+            proj_emb_chunk=project_embeddings[i:end_idx].to(self.device)
+            proj_emb_chunk=F.normalize(proj_emb_chunk,p=2,dim=1)
+            sim_word_emb=F.normalize(self.similar_word_embeddings.to(self.device),p=2,dim=1)
+            similarities=torch.mm(proj_emb_chunk,sim_word_emb.t())
+            for text_pos in range(similarities.shape[0]):
+                text_idx=i+text_pos
+                for word_idx in range(similarities.shape[1]):
+                    similarity=similarities[text_pos,word_idx].item()
+                    if similarity>self.similarity_threshold:
+                        word=list(self.similar_word_index.keys())[word_idx]
+                        criteria=self.similar_word_to_criteria[word]
+                        w2v_score=self.w2v_scores.get((criteria,word),1.0)
+                        adjusted_sim=similarity*w2v_score
+                        for issue_id,indices in issue_dict.items():
+                            if text_idx in indices:
+                                key=(criteria,issue_id)
+                                if key not in matches:matches[key]={"similar_words":[],"scores":[],"text_idx":text_idx}
+                                matches[key]["similar_words"].append(word)
+                                matches[key]["scores"].append(adjusted_sim)
+            del proj_emb_chunk,sim_word_emb,similarities
+            if self.device.startswith('cuda'):torch.cuda.empty_cache()
+        all_texts=[];all_words=[];all_keys=[]
+        for key,data in matches.items():
             text_idx=data["text_idx"]
             text=project_texts[text_idx]
-            sentiments,_=self.batch_sentiment_analysis([text]*len(data["similar_words"]),data["similar_words"])
-            data["sentiments"]=sentiments
+            for word in data["similar_words"]:
+                all_texts.append(text)
+                all_words.append(word)
+                all_keys.append(key)
+        logger.info(f"Processing sentiment for {len(all_texts)} samples in project {project_id}")
+        batch_size=min(200,len(all_texts))
+        sentiments_all=[]
+        for i in range(0,len(all_texts),batch_size):
+            end_idx=min(i+batch_size,len(all_texts))
+            batch_texts=all_texts[i:end_idx]
+            batch_words=all_words[i:end_idx]
+            batch_sentiments,_=self.batch_sentiment_analysis(batch_texts,batch_words)
+            sentiments_all.extend(batch_sentiments)
+            logger.info(f"Processed sentiment for {min(end_idx,len(all_texts))}/{len(all_texts)} texts")
+        sentiment_map={}
+        for i,key in enumerate(all_keys):
+            if key not in sentiment_map:sentiment_map[key]=[]
+            sentiment_map[key].append((all_words[i],sentiments_all[i]))
         results=[]
-        for (criteria,issue_id),data in similar_word_matches.items():
+        for (criteria,issue_id),sentiments_list in sentiment_map.items():
+            data=matches[(criteria,issue_id)]
             total_score=0
-            for i,(score,sentiment) in enumerate(zip(data["scores"],data["sentiments"])):
+            for i,(word,sentiment) in enumerate(sentiments_list):
+                idx=data["similar_words"].index(word)
+                score=data["scores"][idx]
                 if sentiment=='+':total_score+=score
                 else:total_score-=score
             main_sentiment='+' if total_score>0 else '-'
@@ -320,3 +347,4 @@ if __name__=="__main__":
     parser.add_argument('--no-sampling',action='store_true',help='Use top matches instead of sampling')
     args=parser.parse_args()
     main(result_path=args.result,quality_path=args.quality,output_dir=args.output,sim_threshold=args.threshold,batch_size=args.batch_size,use_gpu=not args.no_gpu,parallel=args.parallel,max_workers=args.workers,max_matches_per_project=args.max_matches,sample_matches=not args.no_sampling)
+    
