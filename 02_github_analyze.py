@@ -914,7 +914,7 @@ def main(sim_threshold=0.05,
             );
         """))
         # Insert a progress row if it doesn't exist
-        result = con.execute(text("SELECT FROM quality_attribute_analysis_tracker LIMIT 1")).scalar()
+        result = con.execute(text("SELECT COUNT(*) FROM quality_attribute_analysis_tracker")).scalar()
         if result == 0:
             con.execute(text("INSERT INTO quality_attribute_analysis_tracker (last_issue_id) VALUES (0);"))
 
