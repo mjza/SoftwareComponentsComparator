@@ -933,7 +933,7 @@ def main(sim_threshold=0.05,
             FROM issues i
             LEFT JOIN comments c ON c.issue_id = i.issue_id
             WHERE i.issue_id > :last_id
-            AND (title IS NOT NULL OR body_text IS NOT NULL)
+            AND (i.title IS NOT NULL OR i.body_text IS NOT NULL)
             GROUP BY i.issue_id
             ORDER BY i.issue_id ASC
             LIMIT {issue_batch_size};
