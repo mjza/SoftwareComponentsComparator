@@ -958,7 +958,7 @@ def main(sim_threshold=0.05,
 
         # Update progress tracker
         with engine.begin() as con:
-            con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": max_issue_id})
+            con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": int(max_issue_id)})
 
         last_issue_id = max_issue_id
 
