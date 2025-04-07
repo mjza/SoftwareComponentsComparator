@@ -644,6 +644,9 @@ class QualityAttributeAnalyzer:
 
         results = []
         for (criteria, issue_id), sentiments_list in sentiment_map.items():
+            if word not in data["similar_words"]:
+                logger.warning(f"Word '{word}' not found in matched similar_words for issue {issue_id} and {criteria}")
+                continue
             data = matches[(criteria, issue_id)]
             total_score = 0
             for i, (word, sentiment) in enumerate(sentiments_list):
