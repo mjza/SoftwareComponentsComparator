@@ -933,11 +933,12 @@ def main(sim_threshold=0.05,
             FROM issues i
             LEFT JOIN comments c ON c.issue_id = i.issue_id
             WHERE i.issue_id > :last_id
+            AND (title IS NOT NULL OR body_text IS NOT NULL)
             GROUP BY i.issue_id
             ORDER BY i.issue_id ASC
             LIMIT {issue_batch_size};
         """
-        batch_df = pd.read_sql(text(query), conn, params={"last_id": last_issue_id})
+        batch_df = pd.read_sql(text(query), conn, params={"last_id": int(last_issue_id)})
 
         if batch_df.empty:
             print("No more issues to process.", flush=True)
