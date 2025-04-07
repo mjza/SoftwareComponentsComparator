@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import seaborn as sns
 import psycopg2
+import argparse
 from transformers import AutoTokenizer,AutoModel,pipeline
 from datasets import Dataset
 from tqdm import tqdm
@@ -965,7 +966,7 @@ def main(sim_threshold=0.05,
 
 # Entry point for the script    
 if __name__=="__main__":
-    import argparse
+    print("Start of the analyses!", flush=True)
 
     parser=argparse.ArgumentParser(description='Quality attribute analysis pipeline')
 

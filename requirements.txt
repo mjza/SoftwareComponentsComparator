@@ -12,3 +12,4 @@ seaborn
 tqdm 
 datasets 
 transformers
+sqlalchemy
