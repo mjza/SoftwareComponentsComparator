@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
-#SBATCH --partition=gpu-v100
+#SBATCH --partition=gpu-a100
 #SBATCH --gres=gpu:1
 
 # Load Python
