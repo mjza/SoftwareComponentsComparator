@@ -10,7 +10,7 @@ from collections import defaultdict
 logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(levelname)s - %(message)s')
 logger=logging.getLogger(__name__)
 class QualityAttributeAnalyzer:
-    def __init__(self,similarity_threshold=0.05,batch_size=32,use_gpu=True,parallel=False,max_workers=None,embedding_model='sentence-transformers/all-MiniLM-L6-v2',sentiment_model='distilbert-base-uncased-finetuned-sst-2-english',max_matches_per_project=1000,sample_matches=True):
+    def __init__(self,similarity_threshold=0.05,batch_size=2048,use_gpu=True,parallel=False,max_workers=None,embedding_model='sentence-transformers/all-MiniLM-L6-v2',sentiment_model='distilbert-base-uncased-finetuned-sst-2-english',max_matches_per_project=1000,sample_matches=True):
         self.similarity_threshold=similarity_threshold;self.batch_size=batch_size;self.parallel=parallel
         self.max_workers=max_workers or max(1,multiprocessing.cpu_count()-1)
         self.device='cuda:0' if use_gpu and torch.cuda.is_available() else 'cpu'
@@ -22,28 +22,39 @@ class QualityAttributeAnalyzer:
         self.sentiment_model=AutoModel.from_pretrained(sentiment_model).to(self.device)
         self.sentiment_analyzer=pipeline('sentiment-analysis',model=sentiment_model,tokenizer=self.sentiment_tokenizer,device=0 if self.device=='cuda:0' else -1,batch_size=batch_size,max_length=512,truncation=True)
         self.w2v_scores={}
+        self.similar_words=[]
         self.similar_word_embeddings=None
-        self.similar_word_index={}
         self.similar_word_to_criteria={}
         self.quality_dict={}
         self.reason_cache={}
         self.pos_words=["good","great","excellent","benefit","like","love","improve","better","fix","solve","easy","useful","solved","success","fast"]
         self.neg_words=["bad","poor","issue","bug","problem","difficult","fail","crash","error","slow","breaks","broken","missing","cannot","wrong"]
+    
     def check_valid_text(self,text):
-        if not isinstance(text,str) or not text.strip():return False
+        if not isinstance(text,str):
+            text=str(text)
+        if not text.strip():return False
         unk_count=text.count("[UNK]")
         if unk_count>5:return False
         non_ascii=len([c for c in text if ord(c)>127])
         if non_ascii>len(text)*0.3:return False
         return True
+    
     def determine_content_type(self,text):
+        if not isinstance(text,str):
+            text=str(text)
         text_lower=text.lower()
         if any(w in text_lower for w in ["fix","issue","bug","crash","error","problem","vulnerability"]):return "bug_fix"
         elif any(w in text_lower for w in ["add","feature","implement","new","enhancement","request"]):return "feature"
         elif any(w in text_lower for w in ["bump","update","upgrade","dependency","version"]):return "dependency"
         elif any(w in text_lower for w in ["doc","documentation","example","guide","manual"]):return "documentation"
         else:return "general"
+    
     def check_context_relevance(self,text,quality_attr):
+        if not isinstance(quality_attr,str):
+            quality_attr=str(quality_attr)
+        if not isinstance(text,str):
+            text=str(text)
         qa_lower=quality_attr.lower()
         text_lower=text.lower()
         if qa_lower in text_lower:return True
@@ -52,14 +63,22 @@ class QualityAttributeAnalyzer:
             for word in words:
                 if len(word)>3 and word in text_lower:return True
         return False
+    
     def override_sentiment(self,text,model_sentiment,confidence):
+        if not isinstance(text,str):
+            text=str(text)
         text_lower=text.lower()
         pos_count=sum(1 for w in self.pos_words if w in text_lower)
         neg_count=sum(1 for w in self.neg_words if w in text_lower)
         if pos_count>neg_count*2 and confidence<0.9 and model_sentiment=='-':return '+',0.7
         if neg_count>pos_count*2 and confidence<0.9 and model_sentiment=='+':return '-',0.7
         return model_sentiment,confidence
+    
     def extract_meaningful_context(self,text,quality_attr):
+        if not isinstance(quality_attr,str):
+            quality_attr=str(quality_attr)
+        if not isinstance(text,str):
+            text=str(text)
         if not self.check_valid_text(text):return "Content not available or contains invalid characters"
         clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text);clean_text=re.sub(r'\s+',' ',clean_text).strip()
         title_match=re.search(r'title:\s*([^\n]+)',clean_text,re.IGNORECASE)
@@ -86,7 +105,12 @@ class QualityAttributeAnalyzer:
         if title:return title
         brief_text=re.sub(r'\s+', ' ', clean_text).strip()
         return " ".join(brief_text.split()[:30])+"..."
+    
     def generate_reason(self,text,qa,model_sentiment,confidence):
+        if not isinstance(qa,str):
+            qa=str(qa)
+        if not isinstance(text,str):
+            text=str(text)
         if not self.check_valid_text(text):
             return f"{'Positive' if model_sentiment=='+' else 'Negative'} sentiment ({confidence:.2f}) about {qa}: Content not available or contains invalid characters"
         content_type=self.determine_content_type(text)
@@ -104,28 +128,39 @@ class QualityAttributeAnalyzer:
             "general":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Content highlights good' if sentiment=='+' else 'Content indicates issues with'} {qa.lower()}."
         }
         return f"{content_prefix.get(content_type,content_prefix['general'])} {context}"
+    
     def batch_sentiment_analysis(self,texts,quality_attrs):
         if not texts:return [],[]
         data=[]
-        for text,qa in zip(texts,quality_attrs):
-            if not self.check_valid_text(text):
-                clean_text="Invalid content"
+        for i,(text,qa) in enumerate(zip(texts,quality_attrs)):
+            if not isinstance(text,str):text=str(text)
+            if not isinstance(qa,str):qa=str(qa)
+            if not self.check_valid_text(text):clean_text="Invalid content"
             else:
                 clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text)
                 clean_text=re.sub(r'\s+',' ',clean_text).strip()
-                if len(clean_text)>512:
-                    clean_text=clean_text[:512]
+                if len(clean_text)>512:clean_text=clean_text[:512]
             data.append({"text":clean_text,"quality_attr":qa})
-        dataset=Dataset.from_list(data)
-        texts_to_process=[d["text"] for d in data]
-        results=self.sentiment_analyzer(texts_to_process,batch_size=self.batch_size)
-        sentiments=[];reasons=[]
-        for i,(result,qa) in enumerate(zip(results,quality_attrs)):
-            sentiment='+' if result['label']=='POSITIVE' else '-'
-            confidence=result['score']
-            reason=self.generate_reason(texts_to_process[i],qa,sentiment,confidence)
-            sentiments.append(sentiment);reasons.append(reason)
-        return sentiments,reasons
+        
+        try:
+            texts_to_process=[d["text"] for d in data]
+            results=self.sentiment_analyzer(texts_to_process,batch_size=self.batch_size)
+            
+            sentiments=[]
+            reasons=[]
+            for i,(result,qa) in enumerate(zip(results,quality_attrs)):
+                if not isinstance(qa,str):qa=str(qa)
+                sentiment='+' if result['label']=='POSITIVE' else '-'
+                confidence=result['score']
+                reason=self.generate_reason(data[i]["text"],qa,sentiment,confidence)
+                sentiments.append(sentiment)
+                reasons.append(reason)
+            
+            return sentiments,reasons
+        except Exception as e:
+            logger.error(f"Error in sentiment analysis: {e}")
+            return ['+']*len(texts),["Error processing sentiment"]*len(texts)
+    
     def get_bert_embeddings(self,texts):
         dataset=Dataset.from_dict({"text":texts})
         tokenized_dataset=dataset.map(lambda ex:self.tokenizer(ex["text"],padding="max_length",truncation=True,max_length=512,return_tensors="pt"),batched=True,batch_size=self.batch_size,remove_columns=["text"])
@@ -144,12 +179,15 @@ class QualityAttributeAnalyzer:
             del batch,outputs,token_embeddings,attention_mask,mask_expanded
             if self.device.startswith('cuda'):torch.cuda.empty_cache()
         return torch.cat(all_embeddings,dim=0)
+    
     def prepare_quality_attributes(self,quality_attr_df):
         logger.info("Preparing quality attributes...")
         logger.info(f"Quality attributes columns: {quality_attr_df.columns.tolist()}")
         self.quality_dict={}
         self.w2v_scores={}
         self.similar_word_to_criteria={}
+        self.similar_words=[]
+        
         score_column=None
         for col in quality_attr_df.columns:
             if 'w2v' in col.lower() and 'score' in col.lower():
@@ -158,106 +196,157 @@ class QualityAttributeAnalyzer:
                 break
         if not score_column:
             logger.warning("Could not find max_w2v_score column, using default value 1.0")
-        all_similar_words=[]
+            
         for _,row in quality_attr_df.iterrows():
-            criteria=row['criteria']
-            similar_word=row['similar_word']
+            criteria=str(row['criteria'])
+            similar_word=str(row['similar_word'])
             if criteria not in self.quality_dict:self.quality_dict[criteria]=[]
             self.quality_dict[criteria].append(similar_word)
             self.similar_word_to_criteria[similar_word]=criteria
-            all_similar_words.append(similar_word)
+            self.similar_words.append(similar_word)
             if score_column:self.w2v_scores[(criteria,similar_word)]=row[score_column]
             else:self.w2v_scores[(criteria,similar_word)]=1.0
-        logger.info(f"Computing embeddings for {len(all_similar_words)} similar words")
-        similar_word_texts=[f"Software quality attribute: {word}" for word in all_similar_words]
+            
+        logger.info(f"Computing embeddings for {len(self.similar_words)} similar words")
+        similar_word_texts=[f"Software quality attribute: {word}" for word in self.similar_words]
         self.similar_word_embeddings=self.get_bert_embeddings(similar_word_texts)
-        self.similar_word_index={word:idx for idx,word in enumerate(all_similar_words)}
+    
     def process_project(self,project_id,project_df):
-        start_time=pd.Timestamp.now()
-        logger.info(f"Started processing project {project_id} at {start_time}")
-        issue_dict={};project_texts=[];text_to_idx={}
-        for _,row in project_df.iterrows():
-            issue_id=row['issue_id'];text_parts=[]
-            if pd.notna(row['title']):text_parts.append(f"title: {str(row['title'])}")
-            if pd.notna(row['body_text']):text_parts.append(str(row['body_text']))
-            if pd.notna(row['comment_text']):text_parts.append(f"comment: {str(row['comment_text'])}")
-            if not text_parts:continue
-            text=" ".join(text_parts)
-            if len(text)>5000:text=text[:5000]
-            text_hash=hash(text)
-            if text_hash not in text_to_idx:text_to_idx[text_hash]=len(project_texts);project_texts.append(text)
-            if issue_id not in issue_dict:issue_dict[issue_id]=[]
-            issue_dict[issue_id].append(text_to_idx[text_hash])
-        if not project_texts:logger.info(f"No texts found for project {project_id}");return []
-        project_embeddings=self.get_bert_embeddings(project_texts)
-        matches={}
-        chunk_size=32
-        for i in range(0,len(project_texts),chunk_size):
-            end_idx=min(i+chunk_size,len(project_texts))
-            proj_emb_chunk=project_embeddings[i:end_idx].to(self.device)
-            proj_emb_chunk=F.normalize(proj_emb_chunk,p=2,dim=1)
-            sim_word_emb=F.normalize(self.similar_word_embeddings.to(self.device),p=2,dim=1)
-            similarities=torch.mm(proj_emb_chunk,sim_word_emb.t())
-            for text_pos in range(similarities.shape[0]):
-                text_idx=i+text_pos
-                for word_idx in range(similarities.shape[1]):
-                    similarity=similarities[text_pos,word_idx].item()
-                    if similarity>self.similarity_threshold:
-                        word=list(self.similar_word_index.keys())[word_idx]
-                        criteria=self.similar_word_to_criteria[word]
-                        w2v_score=self.w2v_scores.get((criteria,word),1.0)
-                        adjusted_sim=similarity*w2v_score
-                        for issue_id,indices in issue_dict.items():
-                            if text_idx in indices:
-                                key=(criteria,issue_id)
-                                if key not in matches:matches[key]={"similar_words":[],"scores":[],"text_idx":text_idx}
-                                matches[key]["similar_words"].append(word)
-                                matches[key]["scores"].append(adjusted_sim)
-            del proj_emb_chunk,sim_word_emb,similarities
-            if self.device.startswith('cuda'):torch.cuda.empty_cache()
-        all_texts=[];all_words=[];all_keys=[]
-        for key,data in matches.items():
-            text_idx=data["text_idx"]
-            text=project_texts[text_idx]
-            for word in data["similar_words"]:
-                all_texts.append(text)
-                all_words.append(word)
-                all_keys.append(key)
-        logger.info(f"Processing sentiment for {len(all_texts)} samples in project {project_id}")
-        batch_size=min(200,len(all_texts))
-        sentiments_all=[]
-        for i in range(0,len(all_texts),batch_size):
-            end_idx=min(i+batch_size,len(all_texts))
-            batch_texts=all_texts[i:end_idx]
-            batch_words=all_words[i:end_idx]
-            batch_sentiments,_=self.batch_sentiment_analysis(batch_texts,batch_words)
-            sentiments_all.extend(batch_sentiments)
-            logger.info(f"Processed sentiment for {min(end_idx,len(all_texts))}/{len(all_texts)} texts")
-        sentiment_map={}
-        for i,key in enumerate(all_keys):
-            if key not in sentiment_map:sentiment_map[key]=[]
-            sentiment_map[key].append((all_words[i],sentiments_all[i]))
-        results=[]
-        for (criteria,issue_id),sentiments_list in sentiment_map.items():
-            data=matches[(criteria,issue_id)]
-            total_score=0
-            for i,(word,sentiment) in enumerate(sentiments_list):
-                idx=data["similar_words"].index(word)
-                score=data["scores"][idx]
-                if sentiment=='+':total_score+=score
-                else:total_score-=score
-            main_sentiment='+' if total_score>0 else '-'
-            if abs(total_score)>self.similarity_threshold:
-                results.append({
-                    'project_id':project_id,
-                    'quality_attribute':criteria,
-                    'sentiment':main_sentiment,
-                    'similarity_score':abs(total_score),
-                    'issue_id':issue_id
-                })
-        end_time=pd.Timestamp.now();duration=(end_time-start_time).total_seconds()
-        logger.info(f"Completed project {project_id} in {duration:.2f} seconds. Found {len(results)} quality attribute mentions")
-        return results
+        try:
+            start_time=pd.Timestamp.now()
+            logger.info(f"Started processing project {project_id} at {start_time}")
+            issue_dict={};project_texts=[];text_to_idx={}
+            
+            for _,row in project_df.iterrows():
+                issue_id=row['issue_id'];text_parts=[]
+                if pd.notna(row['title']):text_parts.append(f"title: {str(row['title'])}")
+                if pd.notna(row['body_text']):text_parts.append(str(row['body_text']))
+                if pd.notna(row['comment_text']):text_parts.append(f"comment: {str(row['comment_text'])}")
+                if not text_parts:continue
+                text=" ".join(text_parts)
+                if len(text)>5000:text=text[:5000]
+                text_hash=hash(text)
+                if text_hash not in text_to_idx:text_to_idx[text_hash]=len(project_texts);project_texts.append(text)
+                if issue_id not in issue_dict:issue_dict[issue_id]=[]
+                issue_dict[issue_id].append(text_to_idx[text_hash])
+                
+            if not project_texts:
+                logger.info(f"No texts found for project {project_id}")
+                return []
+                
+            project_embeddings=self.get_bert_embeddings(project_texts)
+            
+            matches={}
+            
+            chunk_size=32
+            for i in range(0,len(project_texts),chunk_size):
+                end_idx=min(i+chunk_size,len(project_texts))
+                
+                proj_emb_chunk=project_embeddings[i:end_idx].to(self.device)
+                proj_emb_chunk=F.normalize(proj_emb_chunk,p=2,dim=1)
+                
+                similar_words_batch=self.similar_word_embeddings.to(self.device)
+                similar_words_batch=F.normalize(similar_words_batch,p=2,dim=1)
+                
+                similarities=torch.mm(proj_emb_chunk,similar_words_batch.t())
+                
+                for text_pos in range(similarities.shape[0]):
+                    text_idx=i+text_pos
+                    
+                    relevant_indices=torch.where(similarities[text_pos] > self.similarity_threshold)[0]
+                    for word_idx in relevant_indices:
+                        try:
+                            word_idx=word_idx.item()
+                            if word_idx<len(self.similar_words):
+                                word=self.similar_words[word_idx]
+                                criteria=self.similar_word_to_criteria[word]
+                                
+                                similarity=similarities[text_pos,word_idx].item()
+                                w2v_score=self.w2v_scores.get((criteria,word),1.0)
+                                adjusted_sim=similarity*w2v_score
+                                
+                                for issue_id,indices in issue_dict.items():
+                                    if text_idx in indices:
+                                        key=(criteria,issue_id)
+                                        if key not in matches:
+                                            matches[key]={"similar_words":[],"scores":[],"text_idx":text_idx}
+                                        matches[key]["similar_words"].append(word)
+                                        matches[key]["scores"].append(adjusted_sim)
+                        except Exception as e:
+                            logger.warning(f"Error processing word {word_idx}: {e}")
+                            continue
+                
+                del proj_emb_chunk,similar_words_batch,similarities
+                if self.device.startswith('cuda'):torch.cuda.empty_cache()
+            
+            all_texts=[];all_words=[];all_keys=[]
+            
+            for key,data in matches.items():
+                text_idx=data["text_idx"]
+                if text_idx >= len(project_texts):
+                    logger.warning(f"Invalid text index {text_idx} for project {project_id}, max is {len(project_texts)-1}")
+                    continue
+                text=project_texts[text_idx]
+                for word in data["similar_words"]:
+                    all_texts.append(text)
+                    all_words.append(word)
+                    all_keys.append(key)
+            
+            sentiments_all=[]
+            if all_texts:
+                logger.info(f"Processing sentiment for {len(all_texts)} samples in project {project_id}")
+                batch_size=256
+                for i in range(0,len(all_texts),batch_size):
+                    end_idx=min(i+batch_size,len(all_texts))
+                    batch_texts=all_texts[i:end_idx]
+                    batch_words=all_words[i:end_idx]
+                    try:
+                        batch_sentiments,_=self.batch_sentiment_analysis(batch_texts,batch_words)
+                        sentiments_all.extend(batch_sentiments)
+                    except Exception as e:
+                        logger.error(f"Error in batch sentiment analysis: {e}")
+                        sentiments_all.extend(['+'] * len(batch_texts))
+                    logger.info(f"Processed sentiment for {end_idx}/{len(all_texts)} samples")
+            
+            sentiment_map={}
+            for i,key in enumerate(all_keys):
+                if i >= len(sentiments_all):continue
+                if key not in sentiment_map:sentiment_map[key]=[]
+                sentiment_map[key].append((all_words[i],sentiments_all[i]))
+            
+            results=[]
+            for (criteria,issue_id),sentiments_list in sentiment_map.items():
+                if (criteria,issue_id) not in matches:continue
+                data=matches[(criteria,issue_id)]
+                total_score=0
+                
+                for word,sentiment in sentiments_list:
+                    try:
+                        idx=data["similar_words"].index(word)
+                        score=data["scores"][idx]
+                        if sentiment=='+':total_score+=score
+                        else:total_score-=score
+                    except ValueError:
+                        continue
+                
+                main_sentiment='+' if total_score>0 else '-'
+                if abs(total_score)>self.similarity_threshold:
+                    results.append({
+                        'project_id':project_id,
+                        'quality_attribute':criteria,
+                        'sentiment':main_sentiment,
+                        'similarity_score':abs(total_score),
+                        'issue_id':issue_id
+                    })
+            
+            end_time=pd.Timestamp.now();duration=(end_time-start_time).total_seconds()
+            logger.info(f"Completed project {project_id} in {duration:.2f} seconds. Found {len(results)} quality attribute mentions")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error processing project {project_id}: {e}")
+            return []
+    
     def analyze_projects_parallel(self,result_df):
         logger.info(f"Analyzing projects in parallel with {self.max_workers} workers")
         project_ids=result_df['project_id'].unique();all_results=[]
@@ -270,14 +359,19 @@ class QualityAttributeAnalyzer:
                     logger.info(f"Project {project_id}: Added {len(results)} quality attribute mentions")
                 except Exception as e:logger.error(f"Project {project_id} failed with error: {e}")
         return pd.DataFrame(all_results)
+    
     def analyze_projects_sequential(self,result_df):
         logger.info("Analyzing projects sequentially")
         project_ids=result_df['project_id'].unique();all_results=[]
         for project_id in tqdm(project_ids,desc="Analyzing projects"):
             project_df=result_df[result_df['project_id']==project_id]
-            try:results=self.process_project(project_id,project_df);all_results.extend(results)
-            except Exception as e:logger.error(f"Project {project_id} failed with error: {e}")
+            try:
+                results=self.process_project(project_id,project_df)
+                all_results.extend(results)
+            except Exception as e:
+                logger.error(f"Project {project_id} failed with error: {e}")
         return pd.DataFrame(all_results)
+    
     def analyze(self,result_df,quality_attr_df):
         self.prepare_quality_attributes(quality_attr_df)
         if self.parallel:results_df=self.analyze_projects_parallel(result_df)
@@ -287,6 +381,7 @@ class QualityAttributeAnalyzer:
             results_df=results_df[['project_id','quality_attribute','sentiment','similarity_score','issue_id']]
             results_df.rename(columns={'quality_attribute':'criteria','sentiment':'semantic'},inplace=True)
         return results_df
+    
     def create_visualizations(self,results_df,output_dir='output/visualizations'):
         if results_df.empty:return
         os.makedirs(output_dir,exist_ok=True)
@@ -310,7 +405,8 @@ class QualityAttributeAnalyzer:
         sns.barplot(x=top_projects.values,y=top_projects.index.astype(str))
         plt.title('Top 10 Projects by Quality Attribute Mentions');plt.xlabel('Number of Mentions')
         plt.tight_layout();plt.savefig(f'{output_dir}/top_projects.png');plt.close()
-def main(result_path='result.csv',quality_path='quality attributes.csv',output_dir='output',sim_threshold=0.05,batch_size=32,use_gpu=True,parallel=False,max_workers=None,max_matches_per_project=1000,sample_matches=True):
+
+def main(result_path='result.csv',quality_path='quality attributes.csv',output_dir='output',sim_threshold=0.05,batch_size=2048,use_gpu=True,parallel=False,max_workers=None,max_matches_per_project=1000,sample_matches=True):
     print("Starting quality attributes analysis pipeline...")
     print(f"Loading datasets from {result_path} and {quality_path}...")
     result_df=pd.read_csv(result_path)
@@ -332,6 +428,7 @@ def main(result_path='result.csv',quality_path='quality attributes.csv',output_d
         print("Creating visualizations...");analyzer.create_visualizations(results_df,f'{output_dir}/visualizations')
         print(f"Visualizations saved to {output_dir}/visualizations/")
     print("Pipeline execution complete!")
+    
 if __name__=="__main__":
     import argparse
     parser=argparse.ArgumentParser(description='Quality attribute analysis pipeline')
@@ -339,7 +436,7 @@ if __name__=="__main__":
     parser.add_argument('--quality',default='quality attributes.csv',help='Path to quality attributes CSV file')
     parser.add_argument('--output',default='output',help='Output directory')
     parser.add_argument('--threshold',type=float,default=0.05,help='Similarity threshold (default: 0.05)')
-    parser.add_argument('--batch-size',type=int,default=32,help='Batch size')
+    parser.add_argument('--batch-size',type=int,default=2048,help='Batch size')
     parser.add_argument('--no-gpu',action='store_true',help='Disable GPU acceleration')
     parser.add_argument('--parallel',action='store_true',help='Enable parallel processing')
     parser.add_argument('--workers',type=int,default=None,help='Number of parallel workers')
@@ -347,4 +444,3 @@ if __name__=="__main__":
     parser.add_argument('--no-sampling',action='store_true',help='Use top matches instead of sampling')
     args=parser.parse_args()
     main(result_path=args.result,quality_path=args.quality,output_dir=args.output,sim_threshold=args.threshold,batch_size=args.batch_size,use_gpu=not args.no_gpu,parallel=args.parallel,max_workers=args.workers,max_matches_per_project=args.max_matches,sample_matches=not args.no_sampling)
-    
