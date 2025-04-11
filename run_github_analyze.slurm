@@ -24,6 +24,9 @@ else
     source "$VENV_DIR/bin/activate"
 fi
 
+# ✅ Prevent PyTorch memory fragmentation
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # Log start time and environment
 echo "✅ Job started at $(date)"
 echo "✅ Running on host: $(hostname)"

@@ -436,7 +436,7 @@ if __name__=="__main__":
     parser.add_argument('--quality',default='quality attributes.csv',help='Path to quality attributes CSV file')
     parser.add_argument('--output',default='output',help='Output directory')
     parser.add_argument('--threshold',type=float,default=0.05,help='Similarity threshold (default: 0.05)')
-    parser.add_argument('--batch-size',type=int,default=2048,help='Batch size')
+    parser.add_argument('--batch-size',type=int,default=128,help='Batch size')
     parser.add_argument('--no-gpu',action='store_true',help='Disable GPU acceleration')
     parser.add_argument('--parallel',action='store_true',help='Enable parallel processing')
     parser.add_argument('--workers',type=int,default=None,help='Number of parallel workers')
