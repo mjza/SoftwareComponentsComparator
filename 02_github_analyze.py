@@ -1,446 +1,1453 @@
-import pandas as pd,numpy as np,torch,re,os,multiprocessing,logging
-from transformers import AutoTokenizer,AutoModel,pipeline
-from datasets import Dataset
-import torch.nn.functional as F
-from tqdm import tqdm
+"""
+Common imports for an NLP / deep‑learning workflow
+--------------------------------------------------
+This block gathers all imports in one place, grouped and alphabetised
+according to PEP 8 (stdlib, third‑party, then local/project).
+"""
+
+# ——— Standard library ————————————————————————————————————————————————
+import logging
+import multiprocessing
+import os
+import re
+import argparse
+from pathlib import Path
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Iterable, Sequence, Tuple, Any, Dict, List
+
+# ——— Third‑party libraries ————————————————————————————————————————————
+import numpy as np                      # Fast numerical arrays / linear algebra
+import pandas as pd                     # Tabular data manipulation
+import torch                            # Core PyTorch tensor library
+import torch.nn.functional as F         # “Functional” NN ops (activations, loss…)
+from datasets import Dataset            # Datasets: memory‑mapped dataset object
+from tqdm import tqdm                   # Progress‑bar utility
+
+# Hugging Face Transformers
+from transformers import (
+    AutoModel,                          # Pre‑trained model loader
+    AutoTokenizer,                      # Matching tokenizer loader
+    pipeline                            # High‑level task pipelines
+)
+
+# Visualisation (note: seaborn is optional—Matplotlib alone is often enough)
 import matplotlib.pyplot as plt
 import seaborn as sns
-from concurrent.futures import ProcessPoolExecutor,as_completed
-from collections import defaultdict
-logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(levelname)s - %(message)s')
-logger=logging.getLogger(__name__)
+
+# ——— Logging setup ————————————————————————————————————————————————
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+
+logger = logging.getLogger(__name__)
+logger.info("Imports complete and logger initialised.")
+
+
 class QualityAttributeAnalyzer:
-    def __init__(self,similarity_threshold=0.05,batch_size=2048,use_gpu=True,parallel=False,max_workers=None,embedding_model='sentence-transformers/all-MiniLM-L6-v2',sentiment_model='distilbert-base-uncased-finetuned-sst-2-english',max_matches_per_project=1000,sample_matches=True):
-        self.similarity_threshold=similarity_threshold;self.batch_size=batch_size;self.parallel=parallel
-        self.max_workers=max_workers or max(1,multiprocessing.cpu_count()-1)
-        self.device='cuda:0' if use_gpu and torch.cuda.is_available() else 'cpu'
-        self.max_matches_per_project=max_matches_per_project;self.sample_matches=sample_matches
-        logger.info(f"Using device: {self.device}");logger.info(f"Using threshold: {self.similarity_threshold}")
-        self.tokenizer=AutoTokenizer.from_pretrained(embedding_model)
-        self.model=AutoModel.from_pretrained(embedding_model).to(self.device)
-        self.sentiment_tokenizer=AutoTokenizer.from_pretrained(sentiment_model)
-        self.sentiment_model=AutoModel.from_pretrained(sentiment_model).to(self.device)
-        self.sentiment_analyzer=pipeline('sentiment-analysis',model=sentiment_model,tokenizer=self.sentiment_tokenizer,device=0 if self.device=='cuda:0' else -1,batch_size=batch_size,max_length=512,truncation=True)
-        self.w2v_scores={}
-        self.similar_words=[]
-        self.similar_word_embeddings=None
-        self.similar_word_to_criteria={}
-        self.quality_dict={}
-        self.reason_cache={}
-        self.pos_words=["good","great","excellent","benefit","like","love","improve","better","fix","solve","easy","useful","solved","success","fast"]
-        self.neg_words=["bad","poor","issue","bug","problem","difficult","fail","crash","error","slow","breaks","broken","missing","cannot","wrong"]
-    
-    def check_valid_text(self,text):
-        if not isinstance(text,str):
-            text=str(text)
-        if not text.strip():return False
-        unk_count=text.count("[UNK]")
-        if unk_count>5:return False
-        non_ascii=len([c for c in text if ord(c)>127])
-        if non_ascii>len(text)*0.3:return False
+    """
+    Analyse software‑quality attributes by:
+      • Embedding text with a Sentence‑Transformers model
+      • Computing similarity scores
+      • Running sentiment analysis with a DistilBERT SST‑2 head
+
+    Parameters
+    ----------
+    similarity_threshold : float, default 0.05
+        Cosine‑similarity cut‑off below which two items are considered dissimilar.
+    batch_size : int, default 2048
+        Mini‑batch size for both embedding and sentiment pipelines.
+    use_gpu : bool, default True
+        If True and a CUDA device is available, computations run on GPU.
+    parallel : bool, default False
+        Whether to process batches in parallel with `multiprocessing`.
+    max_workers : int or None, default None
+        Worker count for the process pool.  Falls back to (CPU‑cores − 1).
+    embedding_model : str
+        model name for text embeddings.
+    sentiment_model : str
+        model name for sentiment classification.
+    max_matches_per_project : int, default 1000
+        Cap on stored similarity matches per project.
+    sample_matches : bool, default True
+        If True, sample from matches when the cap is exceeded.
+    """
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    # pylint: disable=too-many-instance-attributes
+    def __init__(
+        self,
+        similarity_threshold: float = 0.05,
+        batch_size: int = 2048,
+        use_gpu: bool = True,
+        parallel: bool = False,
+        max_workers: int | None = None,
+        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        sentiment_model: str = (
+            "distilbert-base-uncased-finetuned-sst-2-english"
+        ),
+        max_matches_per_project: int = 1000,
+        sample_matches: bool = True,
+    ) -> None:
+        # ——— Hyper‑parameters ————————————————————————————————
+        self.similarity_threshold = similarity_threshold
+        self.batch_size = batch_size
+        self.parallel = parallel
+        self.max_matches_per_project = max_matches_per_project
+        self.sample_matches = sample_matches
+
+        # ——— Hardware / execution context ————————————————
+        self.max_workers = max_workers or max(1, multiprocessing.cpu_count() - 1)
+        self.device = (
+            "cuda:0" if use_gpu and torch.cuda.is_available() else "cpu"
+        )
+        logger.info("Using device: %s", self.device)
+        logger.info("Similarity threshold: %.3f", self.similarity_threshold)
+
+        # ——— Models & tokenisers ————————————————————————————
+        self.tokenizer = AutoTokenizer.from_pretrained(embedding_model)
+        self.model = AutoModel.from_pretrained(embedding_model).to(self.device)
+
+        self.sentiment_tokenizer = AutoTokenizer.from_pretrained(sentiment_model)
+        self.sentiment_model = AutoModel.from_pretrained(sentiment_model).to(
+            self.device
+        )
+
+        # Hugging Face pipeline abstracts batching, tokenisation and inference.
+        self.sentiment_analyzer = pipeline(
+            "sentiment-analysis",
+            model=sentiment_model,
+            tokenizer=self.sentiment_tokenizer,
+            device=0 if self.device.startswith("cuda") else -1,
+            batch_size=batch_size,
+            max_length=512,
+            truncation=True,
+        )
+
+        # ——— Data structures for later use ————————————————————
+        self.w2v_scores: dict[str, float] = {}          # word → similarity score
+        self.similar_words: list[str] = []              # words near each criterion
+        self.similar_word_embeddings: torch.Tensor | None = None
+        self.similar_word_to_criteria: dict[str, list[str]] = {}
+        self.quality_dict: dict[str, list[str]] = {}    # criterion → matched words
+        self.reason_cache: dict[tuple[str, str], str] = {}  # (criterion, word) → explanation
+
+        # Quick polarity lexicons for rule‑based heuristics
+        self.pos_words = [
+            "good", "great", "excellent", "benefit", "like", "love",
+            "improve", "better", "fix", "solve", "easy", "useful",
+            "solved", "success", "fast",
+        ]
+        self.neg_words = [
+            "bad", "poor", "issue", "bug", "problem", "difficult",
+            "fail", "crash", "error", "slow", "breaks", "broken",
+            "missing", "cannot", "wrong",
+        ]
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def check_valid_text(self, text: Any) -> bool:
+        """
+        Heuristically decide whether *text* is “clean” enough for NLP processing.
+
+        Returns
+        -------
+        bool
+            • **True**  – the string passes all sanity checks.  
+            • **False** – the string is likely noisy/garbled and should be skipped.
+
+        Rules applied
+        -------------
+        1. Empty or whitespace‑only strings are rejected.  
+        2. More than five explicit “[UNK]” tokens ⇒ reject.  
+        3. If > 30 % of characters are non‑ASCII ⇒ reject.
+        """
+        # Ensure we are working with a string.
+        if not isinstance(text, str):
+            text = str(text)
+
+        # 1) Non‑empty check
+        if not text.strip():
+            return False
+
+        # 2) Excessive “[UNK]” tokens usually signal tokenizer failure.
+        if text.count("[UNK]") > 5:
+            return False
+
+        # 3) Rough filter for binary blobs or non‑English artefacts.
+        non_ascii_chars = sum(1 for ch in text if ord(ch) > 127)
+        if non_ascii_chars > 0.30 * len(text):
+            return False
+
         return True
-    
-    def determine_content_type(self,text):
-        if not isinstance(text,str):
-            text=str(text)
-        text_lower=text.lower()
-        if any(w in text_lower for w in ["fix","issue","bug","crash","error","problem","vulnerability"]):return "bug_fix"
-        elif any(w in text_lower for w in ["add","feature","implement","new","enhancement","request"]):return "feature"
-        elif any(w in text_lower for w in ["bump","update","upgrade","dependency","version"]):return "dependency"
-        elif any(w in text_lower for w in ["doc","documentation","example","guide","manual"]):return "documentation"
-        else:return "general"
-    
-    def check_context_relevance(self,text,quality_attr):
-        if not isinstance(quality_attr,str):
-            quality_attr=str(quality_attr)
-        if not isinstance(text,str):
-            text=str(text)
-        qa_lower=quality_attr.lower()
-        text_lower=text.lower()
-        if qa_lower in text_lower:return True
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def determine_content_type(self, text: Any) -> str:
+        """
+        Classify a commit / PR / issue message into a coarse‑grained category.
+
+        Categories returned
+        -------------------
+        • **"bug_fix"**       – fixing defects, crashes, vulnerabilities …  
+        • **"feature"**       – new functionality or enhancements.  
+        • **"dependency"**    – version bumps, library upgrades.  
+        • **"documentation"** – docs, guides, examples.  
+        • **"general"**       – anything that doesn’t match the above.
+
+        Notes
+        -----
+        This is a keyword‑triggered heuristic; downstream ML models can refine it.
+        """
+        if not isinstance(text, str):
+            text = str(text)
+
+        text_lower = text.lower()
+
+        if any(word in text_lower for word in (
+            "fix", "issue", "bug", "crash", "error", "problem", "vulnerability"
+        )):
+            return "bug_fix"
+
+        if any(word in text_lower for word in (
+            "add", "feature", "implement", "new", "enhancement", "request"
+        )):
+            return "feature"
+
+        if any(word in text_lower for word in (
+            "bump", "update", "upgrade", "dependency", "version"
+        )):
+            return "dependency"
+
+        if any(word in text_lower for word in (
+            "doc", "documentation", "example", "guide", "manual"
+        )):
+            return "documentation"
+
+        return "general"
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def check_context_relevance(self, text: Any, quality_attr: Any) -> bool:
+        """
+        Decide whether *text* is talking about the given *quality_attr*.
+
+        Heuristic
+        ---------
+        1. **Exact match** – the full, lower‑cased attribute appears as a
+           substring of *text*.
+        2. **Partial match** – for multi‑word attributes, any word longer
+           than three characters appears in *text*.
+
+        Examples
+        --------
+        >>> self.check_context_relevance("Improve response time", "response time")
+        True
+        >>> self.check_context_relevance("Refactor parser", "security")
+        False
+        """
+        # Convert to lowercase strings to avoid AttributeError on non‑str inputs.
+        text_lower = str(text).lower()
+        qa_lower = str(quality_attr).lower()
+
+        # Fast path: full phrase match.
+        if qa_lower in text_lower:
+            return True
+
+        # Fallback: component word match for multi‑word attributes.
         words=qa_lower.split()
         if len(words)>1:
             for word in words:
-                if len(word)>3 and word in text_lower:return True
+                if len(word) > 3 and word in text_lower:
+                    return True
+
         return False
-    
-    def override_sentiment(self,text,model_sentiment,confidence):
-        if not isinstance(text,str):
-            text=str(text)
-        text_lower=text.lower()
-        pos_count=sum(1 for w in self.pos_words if w in text_lower)
-        neg_count=sum(1 for w in self.neg_words if w in text_lower)
-        if pos_count>neg_count*2 and confidence<0.9 and model_sentiment=='-':return '+',0.7
-        if neg_count>pos_count*2 and confidence<0.9 and model_sentiment=='+':return '-',0.7
-        return model_sentiment,confidence
-    
-    def extract_meaningful_context(self,text,quality_attr):
-        if not isinstance(quality_attr,str):
-            quality_attr=str(quality_attr)
-        if not isinstance(text,str):
-            text=str(text)
-        if not self.check_valid_text(text):return "Content not available or contains invalid characters"
-        clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text);clean_text=re.sub(r'\s+',' ',clean_text).strip()
-        title_match=re.search(r'title:\s*([^\n]+)',clean_text,re.IGNORECASE)
-        title=title_match.group(1).strip() if title_match else None
-        if title and len(title)>150:title=title[:150]+"..."
-        content_type=self.determine_content_type(clean_text)
-        sentences=re.split(r'(?<=[.!?])\s+',clean_text)
-        qa_lower=quality_attr.lower()
-        qa_words=qa_lower.split()
-        qa_sentences=[]
-        for s in sentences:
-            if len(s)>200:continue
-            if len(s.split())<3:continue
-            s_lower=s.lower()
-            if qa_lower in s_lower:qa_sentences.append(s)
-            elif len(qa_words)>1 and any(w in s_lower for w in qa_words if len(w)>3):qa_sentences.append(s)
-        if qa_sentences:
-            best_sentences=sorted(qa_sentences,key=lambda s: sum(1 for w in self.pos_words+self.neg_words if w in s.lower()),reverse=True)[:2]
-            return " ".join(best_sentences)
-        type_keywords={"bug_fix":["fix","issue","bug","problem"],"feature":["add","feature","implement","new"],"dependency":["bump","update","upgrade","dependency"],"documentation":["doc","guide","example"]}
-        kw=type_keywords.get(content_type,[])
-        context_sentences=[s for s in sentences if len(s.split())>=3 and len(s)<200 and any(w in s.lower() for w in kw)][:2]
-        if context_sentences:return " ".join(context_sentences)
-        if title:return title
-        brief_text=re.sub(r'\s+', ' ', clean_text).strip()
-        return " ".join(brief_text.split()[:30])+"..."
-    
-    def generate_reason(self,text,qa,model_sentiment,confidence):
-        if not isinstance(qa,str):
-            qa=str(qa)
-        if not isinstance(text,str):
-            text=str(text)
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def override_sentiment(
+        self,
+        text: Any,
+        model_sentiment: str,
+        confidence: float,
+    ) -> tuple[str, float]:
+        """
+        Apply a lightweight, lexicon‑based override to the model’s sentiment.
+
+        Logic
+        -----
+        • Count positive and negative cue words in *text*.  
+        • If one polarity outnumbers the other by **> 2×** *and*  
+          the model’s confidence is **< 0.90** *and*  
+          the cue‑word polarity conflicts with the model’s label,  
+          then flip the label and set confidence to **0.70**.
+
+        Returns
+        -------
+        tuple[str, float]
+            Possibly corrected `(sentiment_label, confidence)` pair.
+            Labels: `'+'` (positive), `'-'` (negative).
+        """
+        text_lower = str(text).lower()
+
+        pos_count = sum(1 for w in self.pos_words if w in text_lower)
+        neg_count = sum(1 for w in self.neg_words if w in text_lower)
+
+        # Positive override
+        if (
+            pos_count > 2 * neg_count
+            and confidence < 0.90
+            and model_sentiment == "-"
+        ):
+            return "+", 0.70
+
+        # Negative override
+        if (
+            neg_count > 2 * pos_count
+            and confidence < 0.90
+            and model_sentiment == "+"
+        ):
+            return "-", 0.70
+
+        # No change
+        return model_sentiment, confidence
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def extract_meaningful_context(
+        self,
+        text: Any,
+        quality_attr: Any,
+    ) -> str:
+        """
+        Pull out one‑to‑two short sentences that best illustrate *quality_attr*
+        within *text* (e.g. a commit message, PR body, or issue description).
+
+        Fallback order
+        --------------
+        1. Sentences explicitly mentioning *quality_attr* (or its component
+           words) and shorter than 200 chars.
+        2. Sentences matching the inferred *content_type* keywords.
+        3. A trimmed “title: …” line (≤ 150 chars).
+        4. First ≈ 30 tokens of the cleaned text, with an ellipsis.
+
+        Returns
+        -------
+        str
+            A concise context string, or a message explaining why none could
+            be extracted.
+        """
+        # Ensure we are working with strings
+        text = str(text)
+        quality_attr = str(quality_attr)
+
+        # Abort early if the text is obviously corrupted/empty.
         if not self.check_valid_text(text):
-            return f"{'Positive' if model_sentiment=='+' else 'Negative'} sentiment ({confidence:.2f}) about {qa}: Content not available or contains invalid characters"
-        content_type=self.determine_content_type(text)
-        sentiment,adj_confidence=self.override_sentiment(text,model_sentiment,confidence)
-        sentiment_label="Positive" if sentiment=='+' else "Negative"
-        is_relevant=self.check_context_relevance(text,qa)
-        context=self.extract_meaningful_context(text,qa)
-        if not is_relevant:
-            return f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: Content may indirectly relate to {qa.lower()}. {context}"
-        content_prefix={
-            "bug_fix":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Fixed issue improving' if sentiment=='+' else 'Problem affecting'} {qa.lower()}.",
-            "feature":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Feature enhancing' if sentiment=='+' else 'Feature request for'} {qa.lower()}.",
-            "dependency":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Dependency update improving' if sentiment=='+' else 'Dependency issue affecting'} {qa.lower()}.",
-            "documentation":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Documentation clarifying' if sentiment=='+' else 'Documentation needed for'} {qa.lower()}.",
-            "general":f"{sentiment_label} sentiment ({adj_confidence:.2f}) about {qa}: {'Content highlights good' if sentiment=='+' else 'Content indicates issues with'} {qa.lower()}."
+            return "Content not available or contains invalid characters"
+
+        # ——— Basic cleaning ————————————————————————————————————————————
+        clean_text = re.sub(r"\[CLS\]|\[SEP\]", "", text)           # drop BERT tokens
+        clean_text = re.sub(r"\s+", " ", clean_text).strip()        # normalise spaces
+
+        # Extract an optional “title: …” line (common in commit templates)
+        title_match = re.search(r"title:\s*([^\n]+)", clean_text, re.IGNORECASE)
+        title = title_match.group(1).strip() if title_match else None
+        if title and len(title) > 150:
+            title = f"{title[:150]}..."
+
+        # Coarse classification (bug fix, feature, …)
+        content_type = self.determine_content_type(clean_text)
+
+        # ——— Sentence tokenisation ————————————————————————————————
+        sentences = re.split(r"(?<=[.!?])\s+", clean_text)
+
+        qa_lower = quality_attr.lower()
+        qa_words = qa_lower.split()
+
+        # 1️⃣  Sentences that explicitly mention the quality attribute
+        candidate_sents: list[str] = []
+        for sent in sentences:
+            if len(sent) > 200 or len(sent.split()) < 3:
+                continue
+
+            s_lower = sent.lower()
+            if qa_lower in s_lower:
+                candidate_sents.append(sent)
+            elif len(qa_words) > 1 and any(
+                w in s_lower for w in qa_words if len(w) > 3
+            ):
+                candidate_sents.append(sent)
+
+        if candidate_sents:
+            # Rank by polarity word count; keep the two most “opinionated”.
+            polarity = self.pos_words + self.neg_words
+            best = sorted(
+                candidate_sents,
+                key=lambda s: sum(1 for w in polarity if w in s.lower()),
+                reverse=True,
+            )[:2]
+            return " ".join(best)
+
+        # 2️⃣  Sentences relevant to the inferred content type
+        type_keywords = {
+            "bug_fix": ["fix", "issue", "bug", "problem"],
+            "feature": ["add", "feature", "implement", "new"],
+            "dependency": ["bump", "update", "upgrade", "dependency"],
+            "documentation": ["doc", "guide", "example"],
         }
-        return f"{content_prefix.get(content_type,content_prefix['general'])} {context}"
-    
-    def batch_sentiment_analysis(self,texts,quality_attrs):
-        if not texts:return [],[]
-        data=[]
-        for i,(text,qa) in enumerate(zip(texts,quality_attrs)):
-            if not isinstance(text,str):text=str(text)
-            if not isinstance(qa,str):qa=str(qa)
-            if not self.check_valid_text(text):clean_text="Invalid content"
+        keywords = type_keywords.get(content_type, [])
+        context_sents = [
+            s
+            for s in sentences
+            if len(s.split()) >= 3
+            and len(s) < 200
+            and any(w in s.lower() for w in keywords)
+        ][:2]
+
+        if context_sents:
+            return " ".join(context_sents)
+
+        # 3️⃣  Use the title line if available
+        if title:
+            return title
+
+        # 4️⃣  Last resort: return a brief preview of the whole text
+        preview = " ".join(clean_text.split()[:30]) + "..."
+        return preview
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def generate_reason(
+        self,
+        text: Any,
+        qa: Any,
+        model_sentiment: str,
+        confidence: float,
+    ) -> str:
+        """
+        Produce a human‑readable explanation string that ties sentiment,
+        quality attribute (*qa*), and context together.
+
+        Workflow
+        --------
+        1. Sanity‑check the raw *text* with `check_valid_text`.
+        2. Infer the *content_type* (bug fix, feature, …).
+        3. Optionally override the model’s sentiment with a lexicon heuristic.
+        4. Assess whether *text* directly references *qa*.
+        5. Extract the most relevant sentence(s) via `extract_meaningful_context`.
+        6. Compose a templated explanation.
+
+        Parameters
+        ----------
+        text : Any
+            Raw commit/PR/issue text.
+        qa : Any
+            Quality attribute of interest (e.g. “performance”).
+        model_sentiment : {'+', '-'}
+            Sentiment label predicted by the model.
+        confidence : float
+            Model‑reported confidence in the prediction.
+
+        Returns
+        -------
+        str
+            Natural‑language justification string.
+        """
+        # Coerce inputs to strings early
+        text = str(text)
+        qa = str(qa)
+
+        # 1️⃣  Validate text
+        if not self.check_valid_text(text):
+            label = "Positive" if model_sentiment == "+" else "Negative"
+            return (
+                f"{label} sentiment ({confidence:.2f}) about {qa}: "
+                "Content not available or contains invalid characters"
+            )
+
+        # 2️⃣  Coarse classification
+        content_type = self.determine_content_type(text)
+
+        # 3️⃣  Sentiment override (lexicon heuristic)
+        sentiment, adj_conf = self.override_sentiment(
+            text, model_sentiment, confidence
+        )
+        sentiment_label = "Positive" if sentiment == "+" else "Negative"
+
+        # 4️⃣  Relevance check
+        is_relevant = self.check_context_relevance(text, qa)
+
+        # 5️⃣  Context extraction
+        context = self.extract_meaningful_context(text, qa)
+
+        if not is_relevant:
+            return (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"Content may indirectly relate to {qa.lower()}. {context}"
+            )
+
+        # 6️⃣  Template selection
+        prefix_templates = {
+            "bug_fix": (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"{'Fixed issue improving' if sentiment == '+' else 'Problem affecting'} "
+                f"{qa.lower()}."
+            ),
+            "feature": (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"{'Feature enhancing' if sentiment == '+' else 'Feature request for'} "
+                f"{qa.lower()}."
+            ),
+            "dependency": (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"{'Dependency update improving' if sentiment == '+' else 'Dependency issue affecting'} "
+                f"{qa.lower()}."
+            ),
+            "documentation": (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"{'Documentation clarifying' if sentiment == '+' else 'Documentation needed for'} "
+                f"{qa.lower()}."
+            ),
+            "general": (
+                f"{sentiment_label} sentiment ({adj_conf:.2f}) about {qa}: "
+                f"{'Content highlights good' if sentiment == '+' else 'Content indicates issues with'} "
+                f"{qa.lower()}."
+            ),
+        }
+
+        return f"{prefix_templates.get(content_type, prefix_templates['general'])} {context}"
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def batch_sentiment_analysis(
+        self,
+        texts: Sequence[Any],
+        quality_attrs: Sequence[Any],
+    ) -> Tuple[list[str], list[str]]:
+        """
+        Run sentiment analysis on a batch of *(text, quality_attribute)* pairs
+        and return both the raw sentiment labels and explanatory strings.
+
+        Steps
+        -----
+        1. **Pre‑clean** each text (remove BERT tokens, collapse whitespace,
+           truncate to 512 chars) or mark as “Invalid content”.
+        2. Use the Hugging Face `sentiment_analyzer` pipeline in batch mode.
+        3. For each result, call `generate_reason` to produce a narrative.
+        4. Handle pipeline errors gracefully by logging and returning
+           fallback values.
+
+        Parameters
+        ----------
+        texts : Sequence[Any]
+            Iterable of commit/PR/issue texts.
+        quality_attrs : Sequence[Any]
+            Iterable of quality attributes (same length as *texts*).
+
+        Returns
+        -------
+        tuple[list[str], list[str]]
+            • **sentiments** – list of `'+'` (positive) / `'-'` (negative).  
+            • **reasons**    – corresponding explanatory messages.
+        """
+        # Fast‑exit if nothing to do
+        if not texts:
+            return [], []
+
+        # ——— Pre‑processing ————————————————————————————————————————————
+        records: list[dict[str, str]] = []
+        for text, qa in zip(texts, quality_attrs, strict=False):
+            # Coerce to strings early
+            text = str(text)
+            qa = str(qa)
+
+            # Validate and clean
+            if not self.check_valid_text(text):
+                clean = "Invalid content"
             else:
-                clean_text=re.sub(r'\[CLS\]|\[SEP\]','',text)
-                clean_text=re.sub(r'\s+',' ',clean_text).strip()
-                if len(clean_text)>512:clean_text=clean_text[:512]
-            data.append({"text":clean_text,"quality_attr":qa})
-        
+                clean = re.sub(r"\[CLS\]|\[SEP\]", "", text)
+                clean = re.sub(r"\s+", " ", clean).strip()
+                clean = clean[:512]  # HF pipeline default max_length is 512
+
+            records.append({"text": clean, "quality_attr": qa})
+
+        # ——— Inference ————————————————————————————————————————————————
         try:
-            texts_to_process=[d["text"] for d in data]
-            results=self.sentiment_analyzer(texts_to_process,batch_size=self.batch_size)
-            
-            sentiments=[]
-            reasons=[]
-            for i,(result,qa) in enumerate(zip(results,quality_attrs)):
-                if not isinstance(qa,str):qa=str(qa)
-                sentiment='+' if result['label']=='POSITIVE' else '-'
-                confidence=result['score']
-                reason=self.generate_reason(data[i]["text"],qa,sentiment,confidence)
+            inputs = [rec["text"] for rec in records]
+            results = self.sentiment_analyzer(
+                inputs, batch_size=self.batch_size
+            )
+
+            sentiments: list[str] = []
+            reasons: list[str] = []
+
+            for rec, res in zip(records, results, strict=False):
+                sentiment = "+" if res["label"] == "POSITIVE" else "-"
+                confidence = res["score"]
+                reason = self.generate_reason(
+                    rec["text"],
+                    rec["quality_attr"],
+                    sentiment,
+                    confidence,
+                )
                 sentiments.append(sentiment)
                 reasons.append(reason)
-            
-            return sentiments,reasons
-        except Exception as e:
-            logger.error(f"Error in sentiment analysis: {e}")
-            return ['+']*len(texts),["Error processing sentiment"]*len(texts)
-    
-    def get_bert_embeddings(self,texts):
-        dataset=Dataset.from_dict({"text":texts})
-        tokenized_dataset=dataset.map(lambda ex:self.tokenizer(ex["text"],padding="max_length",truncation=True,max_length=512,return_tensors="pt"),batched=True,batch_size=self.batch_size,remove_columns=["text"])
-        tokenized_dataset.set_format(type="torch",columns=["input_ids","attention_mask"])
-        dataloader=torch.utils.data.DataLoader(tokenized_dataset,batch_size=self.batch_size)
-        all_embeddings=[]
-        for batch in tqdm(dataloader,desc="Computing embeddings"):
-            batch={k:v.to(self.device) for k,v in batch.items()}
-            with torch.no_grad():outputs=self.model(**batch)
-            token_embeddings=outputs[0];attention_mask=batch["attention_mask"]
-            mask_expanded=attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-            sum_embeddings=torch.sum(token_embeddings*mask_expanded,1)
-            sum_mask=torch.clamp(mask_expanded.sum(1),min=1e-9)
-            embeddings=sum_embeddings/sum_mask
-            all_embeddings.append(embeddings.cpu())
-            del batch,outputs,token_embeddings,attention_mask,mask_expanded
-            if self.device.startswith('cuda'):torch.cuda.empty_cache()
-        return torch.cat(all_embeddings,dim=0)
-    
-    def prepare_quality_attributes(self,quality_attr_df):
-        logger.info("Preparing quality attributes...")
-        logger.info(f"Quality attributes columns: {quality_attr_df.columns.tolist()}")
-        self.quality_dict={}
-        self.w2v_scores={}
-        self.similar_word_to_criteria={}
-        self.similar_words=[]
-        
-        score_column=None
+
+            return sentiments, reasons
+
+        # ——— Robust error handling ————————————————————————————————
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Error in sentiment analysis: %s", exc)
+            fallback_sentiments = ["+"] * len(texts)
+            fallback_reasons = ["Error processing sentiment"] * len(texts)
+            return fallback_sentiments, fallback_reasons
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def get_bert_embeddings(
+        self,
+        texts: Sequence[str],
+    ) -> torch.Tensor:
+        """
+        Encode a batch of *texts* with the class’s BERT‑style model and return
+        sentence‑level embeddings (mean‑pooled over valid tokens).
+
+        Pipeline
+        --------
+        1. Build a 🤗 `Dataset` from the raw strings.
+        2. Tokenise with padding/truncation to 512 tokens (HF max default).
+        3. Create a PyTorch `DataLoader` for efficient batching.
+        4. Forward‑pass **without gradients** and mean‑pool over the
+           attention‑masked tokens to obtain a single 768‑d (or model‑dim)
+           vector per sentence.
+        5. Concatenate all batches on the CPU and return a single tensor
+           shaped **(len(texts), hidden_size)**.
+
+        Parameters
+        ----------
+        texts : Sequence[str]
+            Iterable of raw strings to embed.
+
+        Returns
+        -------
+        torch.Tensor
+            2‑D tensor of shape *(N, hidden_size)* on **CPU**.
+        """
+        # ——— Build Hugging Face Dataset ————————————————————————————————
+        ds = Dataset.from_dict({"text": texts})
+
+        # Tokenise in bulk; keep tensors on CPU for now
+        ds_tok = ds.map(
+            lambda ex: self.tokenizer(
+                ex["text"],
+                padding="max_length",
+                truncation=True,
+                max_length=512,
+                return_tensors="pt",
+            ),
+            batched=True,
+            batch_size=self.batch_size,
+            remove_columns=["text"],
+        )
+        ds_tok.set_format(type="torch", columns=["input_ids", "attention_mask"])
+
+        # ——— DataLoader for efficient batching ————————————————————————
+        loader = torch.utils.data.DataLoader(
+            ds_tok, batch_size=self.batch_size
+        )
+
+        all_embeds: list[torch.Tensor] = []
+
+        # ——— Forward pass ——————————————————————————————————————————————
+        for batch in tqdm(loader, desc="Computing embeddings"):
+            # Move tensors to the target device (CPU or GPU)
+            batch = {k: v.to(self.device) for k, v in batch.items()}
+
+            with torch.no_grad():
+                outputs = self.model(**batch)
+
+            # outputs[0] = (batch, seq_len, hidden_size)
+            token_embeds = outputs[0]                       # Token‑level reps
+            attn_mask = batch["attention_mask"]             # 1 for real token
+
+            # Mean‑pool: sum hidden states where mask == 1, divide by token count
+            mask_exp = attn_mask.unsqueeze(-1).expand(token_embeds.size()).float()
+            summed = torch.sum(token_embeds * mask_exp, dim=1)
+            counts = torch.clamp(mask_exp.sum(dim=1), min=1e-9)
+            sent_embeds = summed / counts                   # (batch, hidden)
+
+            # Collect on CPU to free GPU memory
+            all_embeds.append(sent_embeds.cpu())
+
+            # Housekeeping
+            del batch, outputs, token_embeds, attn_mask, mask_exp
+            if self.device.startswith("cuda"):
+                torch.cuda.empty_cache()
+
+        # ——— Stack all batches into one tensor ————————————————————————
+        return torch.cat(all_embeds, dim=0)
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def prepare_quality_attributes(
+        self,
+        quality_attr_df: pd.DataFrame,
+    ) -> None:
+        """
+        Load a *quality‑attribute* table and populate the lookup structures
+        used by the analyser.
+
+        Expected columns
+        ----------------
+        • **criteria**       – canonical quality attribute (e.g. “performance”).  
+        • **similar_word**   – lexical variant / synonym.  
+        • **<w2v>…<score>**  – (optional) similarity score column; the first
+          column whose lowercase name contains both “w2v” and “score” is used.
+
+        Side‑effects
+        ------------
+        Populates / resets these instance attributes:
+
+        * `self.quality_dict`              – {criteria → [similar_word, …]}  
+        * `self.w2v_scores`                – {(criteria, word) → float}  
+        * `self.similar_word_to_criteria`  – {word → criteria}  
+        * `self.similar_words`             – [word, …]  
+        * `self.similar_word_embeddings`   – Tensor of BERT embeddings
+        """
+        logger.info("Preparing quality attributes…")
+        logger.info("Quality‑attribute columns: %s", quality_attr_df.columns.tolist())
+
+        # ——— Reset all dependent data structures ————————————————————————
+        self.quality_dict: dict[str, list[str]] = {}
+        self.w2v_scores: dict[tuple[str, str], float] = {}
+        self.similar_word_to_criteria: dict[str, str] = {}
+        self.similar_words: list[str] = []
+
+        # ——— Identify the w2v‑score column (if present) ————————————————
+        score_col: str | None = None
         for col in quality_attr_df.columns:
-            if 'w2v' in col.lower() and 'score' in col.lower():
-                score_column=col
-                logger.info(f"Found score column: {col}")
+            col_l = col.lower()
+            if "w2v" in col_l and "score" in col_l:
+                score_col = col
+                logger.info("Found score column: %s", score_col)
                 break
-        if not score_column:
-            logger.warning("Could not find max_w2v_score column, using default value 1.0")
-            
-        for _,row in quality_attr_df.iterrows():
-            criteria=str(row['criteria'])
-            similar_word=str(row['similar_word'])
-            if criteria not in self.quality_dict:self.quality_dict[criteria]=[]
-            self.quality_dict[criteria].append(similar_word)
-            self.similar_word_to_criteria[similar_word]=criteria
-            self.similar_words.append(similar_word)
-            if score_column:self.w2v_scores[(criteria,similar_word)]=row[score_column]
-            else:self.w2v_scores[(criteria,similar_word)]=1.0
-            
-        logger.info(f"Computing embeddings for {len(self.similar_words)} similar words")
-        similar_word_texts=[f"Software quality attribute: {word}" for word in self.similar_words]
-        self.similar_word_embeddings=self.get_bert_embeddings(similar_word_texts)
-    
-    def process_project(self,project_id,project_df):
+
+        if score_col is None:
+            logger.warning(
+                "Could not find a w2v score column – defaulting all scores to 1.0"
+            )
+
+        # ——— Build lookup dictionaries ————————————————————————————————
+        for _, row in quality_attr_df.iterrows():
+            criteria = str(row["criteria"])
+            word = str(row["similar_word"])
+
+            # Map criteria → list of words
+            self.quality_dict.setdefault(criteria, []).append(word)
+
+            # Map word → criteria
+            self.similar_word_to_criteria[word] = criteria
+
+            # Flat list of all words
+            self.similar_words.append(word)
+
+            # (criteria, word) → score
+            score = row[score_col] if score_col else 1.0
+            self.w2v_scores[(criteria, word)] = float(score)
+
+        # ——— Pre‑compute embeddings for all similar words ——————————————
+        logger.info("Computing embeddings for %d similar words", len(self.similar_words))
+        prompts = [f"Software quality attribute: {w}" for w in self.similar_words]
+        self.similar_word_embeddings = self.get_bert_embeddings(prompts)
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def process_project(
+        self,
+        project_id: Any,
+        project_df: pd.DataFrame,
+    ) -> List[Dict[str, Any]]:
+        """
+        Analyse a single project (repo) and return per‑issue, per‑quality‑attribute
+        sentiment findings.
+
+        High‑level workflow
+        -------------------
+        1. **Gather & deduplicate** textual artefacts (titles, bodies, comments).  
+        2. **Embed** each unique text with `get_bert_embeddings`.  
+        3. **Similarity search** against pre‑computed quality‑attribute words.  
+        4. **Batch sentiment analysis** for every (text, similar_word) match.  
+        5. **Aggregate** scores into an overall sentiment per *(criteria, issue)*.  
+
+        Parameters
+        ----------
+        project_id : Any
+            Identifier for logging / result rows.
+        project_df : pd.DataFrame
+            Must include columns: `issue_id`, `title`, `body_text`, `comment_text`.
+
+        Returns
+        -------
+        list[dict]
+            Each dict contains: `project_id`, `quality_attribute`, `sentiment`,
+            `similarity_score`, `issue_id`.
+        """
         try:
-            start_time=pd.Timestamp.now()
-            logger.info(f"Started processing project {project_id} at {start_time}")
-            issue_dict={};project_texts=[];text_to_idx={}
-            
-            for _,row in project_df.iterrows():
-                issue_id=row['issue_id'];text_parts=[]
-                if pd.notna(row['title']):text_parts.append(f"title: {str(row['title'])}")
-                if pd.notna(row['body_text']):text_parts.append(str(row['body_text']))
-                if pd.notna(row['comment_text']):text_parts.append(f"comment: {str(row['comment_text'])}")
-                if not text_parts:continue
-                text=" ".join(text_parts)
-                if len(text)>5000:text=text[:5000]
-                text_hash=hash(text)
-                if text_hash not in text_to_idx:text_to_idx[text_hash]=len(project_texts);project_texts.append(text)
-                if issue_id not in issue_dict:issue_dict[issue_id]=[]
-                issue_dict[issue_id].append(text_to_idx[text_hash])
-                
-            if not project_texts:
-                logger.info(f"No texts found for project {project_id}")
-                return []
-                
-            project_embeddings=self.get_bert_embeddings(project_texts)
-            
-            matches={}
-            
-            chunk_size=32
-            for i in range(0,len(project_texts),chunk_size):
-                end_idx=min(i+chunk_size,len(project_texts))
-                
-                proj_emb_chunk=project_embeddings[i:end_idx].to(self.device)
-                proj_emb_chunk=F.normalize(proj_emb_chunk,p=2,dim=1)
-                
-                similar_words_batch=self.similar_word_embeddings.to(self.device)
-                similar_words_batch=F.normalize(similar_words_batch,p=2,dim=1)
-                
-                similarities=torch.mm(proj_emb_chunk,similar_words_batch.t())
-                
-                for text_pos in range(similarities.shape[0]):
-                    text_idx=i+text_pos
-                    
-                    relevant_indices=torch.where(similarities[text_pos] > self.similarity_threshold)[0]
-                    for word_idx in relevant_indices:
-                        try:
-                            word_idx=word_idx.item()
-                            if word_idx<len(self.similar_words):
-                                word=self.similar_words[word_idx]
-                                criteria=self.similar_word_to_criteria[word]
-                                
-                                similarity=similarities[text_pos,word_idx].item()
-                                w2v_score=self.w2v_scores.get((criteria,word),1.0)
-                                adjusted_sim=similarity*w2v_score
-                                
-                                for issue_id,indices in issue_dict.items():
-                                    if text_idx in indices:
-                                        key=(criteria,issue_id)
-                                        if key not in matches:
-                                            matches[key]={"similar_words":[],"scores":[],"text_idx":text_idx}
-                                        matches[key]["similar_words"].append(word)
-                                        matches[key]["scores"].append(adjusted_sim)
-                        except Exception as e:
-                            logger.warning(f"Error processing word {word_idx}: {e}")
-                            continue
-                
-                del proj_emb_chunk,similar_words_batch,similarities
-                if self.device.startswith('cuda'):torch.cuda.empty_cache()
-            
-            all_texts=[];all_words=[];all_keys=[]
-            
-            for key,data in matches.items():
-                text_idx=data["text_idx"]
-                if text_idx >= len(project_texts):
-                    logger.warning(f"Invalid text index {text_idx} for project {project_id}, max is {len(project_texts)-1}")
+            start_time = pd.Timestamp.now()
+            logger.info("Started processing project %s at %s", project_id, start_time)
+
+            # ─── 1️⃣  Collect and de‑duplicate texts per issue ───────────────────
+            issue_text_map: dict[Any, list[int]] = {}
+            project_texts: list[str] = []
+            text_hash_to_idx: dict[int, int] = {}
+
+            for _, row in project_df.iterrows():
+                issue_id = row["issue_id"]
+
+                # Build one long string from title / body / comment
+                parts: list[str] = []
+                if pd.notna(row["title"]):
+                    parts.append(f"title: {str(row['title'])}")
+                if pd.notna(row["body_text"]):
+                    parts.append(str(row["body_text"]))
+                if pd.notna(row["comment_text"]):
+                    parts.append(f"comment: {str(row['comment_text'])}")
+
+                if not parts:  # nothing to analyse
                     continue
-                text=project_texts[text_idx]
+
+                text = " ".join(parts)[:5000]  # hard cap length
+                text_hash = hash(text)
+
+                # Map unique text → index
+                if text_hash not in text_hash_to_idx:
+                    text_hash_to_idx[text_hash] = len(project_texts)
+                    project_texts.append(text)
+
+                # Map issue → list of text indices
+                issue_text_map.setdefault(issue_id, []).append(
+                    text_hash_to_idx[text_hash]
+                )
+
+            if not project_texts:
+                logger.info("No texts found for project %s", project_id)
+                return []
+
+            # ─── 2️⃣  Compute embeddings for all unique texts ───────────────────
+            project_embeds = self.get_bert_embeddings(project_texts)  # (N, dim)
+
+            # ─── 3️⃣  Similarity search to find quality‑attribute mentions ─────
+            matches: dict[
+                tuple[str, Any],
+                dict[str, Any],
+            ] = {}  # key = (criteria, issue_id)
+
+            chunk_size = 32
+            qa_embeds = F.normalize(
+                self.similar_word_embeddings.to(self.device), p=2, dim=1
+            )
+
+            for start in range(0, len(project_texts), chunk_size):
+                end = min(start + chunk_size, len(project_texts))
+
+                text_emb_chunk = F.normalize(
+                    project_embeds[start:end].to(self.device), p=2, dim=1
+                )
+                sims = torch.mm(text_emb_chunk, qa_embeds.T)  # (chunk, |words|)
+
+                for pos_in_chunk in range(sims.size(0)):
+                    text_idx = start + pos_in_chunk
+
+                    # Indices of attribute words above threshold
+                    relevant = torch.where(
+                        sims[pos_in_chunk] > self.similarity_threshold
+                    )[0]
+
+                    for word_idx_t in relevant:
+                        try:
+                            word_idx = word_idx_t.item()
+                            word = self.similar_words[word_idx]
+                            criteria = self.similar_word_to_criteria[word]
+
+                            sim = sims[pos_in_chunk, word_idx].item()
+                            w2v = self.w2v_scores.get((criteria, word), 1.0)
+                            adjusted = sim * w2v
+
+                            # Record per‑issue
+                            for issue_id, indices in issue_text_map.items():
+                                if text_idx in indices:
+                                    key = (criteria, issue_id)
+                                    matches.setdefault(
+                                        key,
+                                        {
+                                            "similar_words": [],
+                                            "scores": [],
+                                            "text_idx": text_idx,
+                                        },
+                                    )
+                                    matches[key]["similar_words"].append(word)
+                                    matches[key]["scores"].append(adjusted)
+                        except Exception as exc:  # pylint: disable=broad-except
+                            logger.warning(
+                                "Error processing word %s in project %s: %s",
+                                word_idx_t,
+                                project_id,
+                                exc,
+                            )
+
+                # House‑keeping
+                del text_emb_chunk, sims
+                if self.device.startswith("cuda"):
+                    torch.cuda.empty_cache()
+
+            # ─── 4️⃣  Run sentiment analysis for each (text, word) pair ─────────
+            all_texts: list[str] = []
+            all_words: list[str] = []
+            all_keys: list[tuple[str, Any]] = []
+
+            for key, data in matches.items():
+                text_idx = data["text_idx"]
+                if text_idx >= len(project_texts):
+                    logger.warning(
+                        "Invalid text index %d for project %s (max %d)",
+                        text_idx,
+                        project_id,
+                        len(project_texts) - 1,
+                    )
+                    continue
+
+                text = project_texts[text_idx]
                 for word in data["similar_words"]:
                     all_texts.append(text)
                     all_words.append(word)
                     all_keys.append(key)
-            
-            sentiments_all=[]
+
+            sentiments_all: list[str] = []
             if all_texts:
-                logger.info(f"Processing sentiment for {len(all_texts)} samples in project {project_id}")
-                batch_size=256
-                for i in range(0,len(all_texts),batch_size):
-                    end_idx=min(i+batch_size,len(all_texts))
-                    batch_texts=all_texts[i:end_idx]
-                    batch_words=all_words[i:end_idx]
+                logger.info(
+                    "Processing sentiment for %d samples in project %s",
+                    len(all_texts),
+                    project_id,
+                )
+                batch_size = 256
+                for start in range(0, len(all_texts), batch_size):
+                    end = min(start + batch_size, len(all_texts))
                     try:
-                        batch_sentiments,_=self.batch_sentiment_analysis(batch_texts,batch_words)
-                        sentiments_all.extend(batch_sentiments)
-                    except Exception as e:
-                        logger.error(f"Error in batch sentiment analysis: {e}")
-                        sentiments_all.extend(['+'] * len(batch_texts))
-                    logger.info(f"Processed sentiment for {end_idx}/{len(all_texts)} samples")
-            
-            sentiment_map={}
-            for i,key in enumerate(all_keys):
-                if i >= len(sentiments_all):continue
-                if key not in sentiment_map:sentiment_map[key]=[]
-                sentiment_map[key].append((all_words[i],sentiments_all[i]))
-            
-            results=[]
-            for (criteria,issue_id),sentiments_list in sentiment_map.items():
-                if (criteria,issue_id) not in matches:continue
-                data=matches[(criteria,issue_id)]
-                total_score=0
-                
-                for word,sentiment in sentiments_list:
+                        batch_sents, _ = self.batch_sentiment_analysis(
+                            all_texts[start:end], all_words[start:end]
+                        )
+                        sentiments_all.extend(batch_sents)
+                    except Exception as exc:  # pylint: disable=broad-except
+                        logger.error("Error in batch sentiment analysis: %s", exc)
+                        sentiments_all.extend(["+"] * (end - start))
+
+                    logger.info("Processed sentiment for %d/%d samples", end, len(all_texts))
+
+            # ─── 5️⃣  Aggregate per‑issue / per‑criteria sentiment ──────────────
+            sentiment_map: dict[
+                tuple[str, Any], list[tuple[str, str]]
+            ] = {}  # key → [(word, sentiment)]
+
+            for idx, key in enumerate(all_keys):
+                if idx >= len(sentiments_all):
+                    continue
+                sentiment_map.setdefault(key, []).append(
+                    (all_words[idx], sentiments_all[idx])
+                )
+
+            results: list[dict[str, Any]] = []
+            for (criteria, issue_id), word_sents in sentiment_map.items():
+                data = matches.get((criteria, issue_id))
+                if not data:
+                    continue
+
+                total_score = 0.0
+                for word, sent in word_sents:
                     try:
-                        idx=data["similar_words"].index(word)
-                        score=data["scores"][idx]
-                        if sentiment=='+':total_score+=score
-                        else:total_score-=score
+                        w_idx = data["similar_words"].index(word)
+                        score = data["scores"][w_idx]
+                        total_score += score if sent == "+" else -score
                     except ValueError:
                         continue
-                
-                main_sentiment='+' if total_score>0 else '-'
-                if abs(total_score)>self.similarity_threshold:
-                    results.append({
-                        'project_id':project_id,
-                        'quality_attribute':criteria,
-                        'sentiment':main_sentiment,
-                        'similarity_score':abs(total_score),
-                        'issue_id':issue_id
-                    })
-            
-            end_time=pd.Timestamp.now();duration=(end_time-start_time).total_seconds()
-            logger.info(f"Completed project {project_id} in {duration:.2f} seconds. Found {len(results)} quality attribute mentions")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error processing project {project_id}: {e}")
-            return []
-    
-    def analyze_projects_parallel(self,result_df):
-        logger.info(f"Analyzing projects in parallel with {self.max_workers} workers")
-        project_ids=result_df['project_id'].unique();all_results=[]
-        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_project={executor.submit(self.process_project,pid,result_df[result_df['project_id']==pid]):pid for pid in project_ids}
-            for future in tqdm(as_completed(future_to_project),total=len(project_ids),desc="Projects completed"):
-                project_id=future_to_project[future]
-                try:
-                    results=future.result();all_results.extend(results)
-                    logger.info(f"Project {project_id}: Added {len(results)} quality attribute mentions")
-                except Exception as e:logger.error(f"Project {project_id} failed with error: {e}")
-        return pd.DataFrame(all_results)
-    
-    def analyze_projects_sequential(self,result_df):
-        logger.info("Analyzing projects sequentially")
-        project_ids=result_df['project_id'].unique();all_results=[]
-        for project_id in tqdm(project_ids,desc="Analyzing projects"):
-            project_df=result_df[result_df['project_id']==project_id]
-            try:
-                results=self.process_project(project_id,project_df)
-                all_results.extend(results)
-            except Exception as e:
-                logger.error(f"Project {project_id} failed with error: {e}")
-        return pd.DataFrame(all_results)
-    
-    def analyze(self,result_df,quality_attr_df):
-        self.prepare_quality_attributes(quality_attr_df)
-        if self.parallel:results_df=self.analyze_projects_parallel(result_df)
-        else:results_df=self.analyze_projects_sequential(result_df)
-        if not results_df.empty:
-            results_df['id']=range(len(results_df))
-            results_df=results_df[['project_id','quality_attribute','sentiment','similarity_score','issue_id']]
-            results_df.rename(columns={'quality_attribute':'criteria','sentiment':'semantic'},inplace=True)
-        return results_df
-    
-    def create_visualizations(self,results_df,output_dir='output/visualizations'):
-        if results_df.empty:return
-        os.makedirs(output_dir,exist_ok=True)
-        plt.figure(figsize=(12,8))
-        top_attrs=results_df['criteria'].value_counts().head(15)
-        sns.barplot(x=top_attrs.values,y=top_attrs.index)
-        plt.title('Top 15 Quality Attributes Mentioned');plt.xlabel('Number of Mentions');plt.tight_layout()
-        plt.savefig(f'{output_dir}/top_quality_attributes.png');plt.close()
-        plt.figure(figsize=(12,8))
-        top_5_attrs=results_df['criteria'].value_counts().head(5).index
-        sentiment_by_attr=pd.crosstab(results_df[results_df['criteria'].isin(top_5_attrs)]['criteria'],results_df[results_df['criteria'].isin(top_5_attrs)]['semantic'])
-        sentiment_by_attr.plot(kind='bar',stacked=True)
-        plt.title('Sentiment Distribution for Top 5 Quality Attributes');plt.xlabel('Quality Attribute');plt.ylabel('Count')
-        plt.legend(title='Sentiment');plt.tight_layout();plt.savefig(f'{output_dir}/sentiment_by_attribute.png');plt.close()
-        plt.figure(figsize=(10,6))
-        sns.histplot(results_df['similarity_score'],bins=20)
-        plt.title('Distribution of Similarity Scores');plt.xlabel('Similarity Score');plt.ylabel('Count')
-        plt.tight_layout();plt.savefig(f'{output_dir}/similarity_distribution.png');plt.close()
-        plt.figure(figsize=(12,8))
-        top_projects=results_df['project_id'].value_counts().head(10)
-        sns.barplot(x=top_projects.values,y=top_projects.index.astype(str))
-        plt.title('Top 10 Projects by Quality Attribute Mentions');plt.xlabel('Number of Mentions')
-        plt.tight_layout();plt.savefig(f'{output_dir}/top_projects.png');plt.close()
 
-def main(result_path='result.csv',quality_path='quality attributes.csv',output_dir='output',sim_threshold=0.05,batch_size=2048,use_gpu=True,parallel=False,max_workers=None,max_matches_per_project=1000,sample_matches=True):
-    print("Starting quality attributes analysis pipeline...")
-    print(f"Loading datasets from {result_path} and {quality_path}...")
-    result_df=pd.read_csv(result_path)
-    result_df=result_df[['issue_id','project_id','title','body_text','comments','comment_text']]
-    quality_attr_df=pd.read_csv(quality_path)
-    print(f"Loaded {len(result_df)} rows from result.csv");print(f"Loaded {len(quality_attr_df)} rows from quality attributes.csv")
-    print(f"Found {result_df['project_id'].nunique()} unique projects");print(f"Found {quality_attr_df['criteria'].nunique()} unique quality attributes")
-    analyzer=QualityAttributeAnalyzer(similarity_threshold=sim_threshold,batch_size=batch_size,use_gpu=use_gpu,parallel=parallel,max_workers=max_workers,max_matches_per_project=max_matches_per_project,sample_matches=sample_matches)
-    results_df=analyzer.analyze(result_df,quality_attr_df)
-    if results_df.empty:print("No quality attributes found with similarity above threshold.")
-    else:
-        print(f"Analysis complete. Found {len(results_df)} quality attribute relationships.")
-        print(f"Number of projects with quality attributes: {results_df['project_id'].nunique()}")
-        print(f"Number of issues with quality attributes: {results_df['issue_id'].nunique()}")
-        print("\nTop 10 most common quality attributes:");print(results_df['criteria'].value_counts().head(10))
-        print("\nSentiment distribution:");print(results_df['semantic'].value_counts())
-        os.makedirs(output_dir,exist_ok=True);output_file=f'{output_dir}/quality_attribute_analysis.csv'
-        results_df.to_csv(output_file,index=False);print(f"Results saved to {output_file}")
-        print("Creating visualizations...");analyzer.create_visualizations(results_df,f'{output_dir}/visualizations')
-        print(f"Visualizations saved to {output_dir}/visualizations/")
-    print("Pipeline execution complete!")
-    
-if __name__=="__main__":
-    import argparse
-    parser=argparse.ArgumentParser(description='Quality attribute analysis pipeline')
-    parser.add_argument('--result',default='result.csv',help='Path to result CSV file')
-    parser.add_argument('--quality',default='quality attributes.csv',help='Path to quality attributes CSV file')
-    parser.add_argument('--output',default='output',help='Output directory')
-    parser.add_argument('--threshold',type=float,default=0.05,help='Similarity threshold (default: 0.05)')
-    parser.add_argument('--batch-size',type=int,default=2048,help='Batch size')
-    parser.add_argument('--no-gpu',action='store_true',help='Disable GPU acceleration')
-    parser.add_argument('--parallel',action='store_true',help='Enable parallel processing')
-    parser.add_argument('--workers',type=int,default=None,help='Number of parallel workers')
-    parser.add_argument('--max-matches',type=int,default=1000,help='Maximum matches per project (default: 1000)')
-    parser.add_argument('--no-sampling',action='store_true',help='Use top matches instead of sampling')
-    args=parser.parse_args()
-    main(result_path=args.result,quality_path=args.quality,output_dir=args.output,sim_threshold=args.threshold,batch_size=args.batch_size,use_gpu=not args.no_gpu,parallel=args.parallel,max_workers=args.workers,max_matches_per_project=args.max_matches,sample_matches=not args.no_sampling)
+                main_sentiment = "+" if total_score > 0 else "-"
+                if abs(total_score) > self.similarity_threshold:
+                    results.append(
+                        {
+                            "project_id": project_id,
+                            "quality_attribute": criteria,
+                            "sentiment": main_sentiment,
+                            "similarity_score": abs(total_score),
+                            "issue_id": issue_id,
+                        }
+                    )
+
+            duration = (pd.Timestamp.now() - start_time).total_seconds()
+            logger.info(
+                "Completed project %s in %.2f s – found %d quality‑attribute mentions",
+                project_id,
+                duration,
+                len(results),
+            )
+            return results
+
+        # ─── Top‑level error handling ───────────────────────────────────────────
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Error processing project %s: %s", project_id, exc)
+            return []
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def analyze_projects_parallel(
+        self,
+        result_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Run `process_project` for every distinct *project_id* in **parallel**
+        using a `ProcessPoolExecutor`, then concatenate all results.
+
+        Parameters
+        ----------
+        result_df : pd.DataFrame
+            A data frame containing at least the column **`project_id`** and
+            any other columns required by `process_project`.
+
+        Returns
+        -------
+        pd.DataFrame
+            Aggregated rows from all projects, as produced by
+            `process_project`.  If no quality‑attribute mentions are found,
+            an empty frame is returned.
+        """
+        logger.info(
+            "Analyzing projects in parallel with %d workers", self.max_workers
+        )
+
+        project_ids = result_df["project_id"].unique()
+        all_results: List[Dict[str, Any]] = []
+
+        # ─── Launch one future per project ─────────────────────────────────────
+        with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(
+                    self.process_project,
+                    pid,
+                    result_df[result_df["project_id"] == pid],
+                ): pid
+                for pid in project_ids
+            }
+
+            # ─── Collect results as they finish ───────────────────────────────
+            for future in tqdm(
+                as_completed(futures),
+                total=len(project_ids),
+                desc="Projects completed",
+            ):
+                pid = futures[future]
+                try:
+                    results = future.result()
+                    all_results.extend(results)
+                    logger.info(
+                        "Project %s: added %d quality‑attribute mentions",
+                        pid,
+                        len(results),
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.error("Project %s failed with error: %s", pid, exc)
+
+        return pd.DataFrame(all_results)
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def analyze_projects_sequential(
+        self,
+        result_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        Process every distinct *project_id* **one after another** (no parallelism)
+        by delegating to `process_project`, then concatenate all results.
+
+        Parameters
+        ----------
+        result_df : pd.DataFrame
+            A data frame that contains at least the column **`project_id`** and
+            any other columns expected by `process_project`.
+
+        Returns
+        -------
+        pd.DataFrame
+            Combined rows from all projects.  If no quality‑attribute mentions
+            are found, the returned frame is empty.
+        """
+        logger.info("Analyzing projects sequentially")
+
+        project_ids = result_df["project_id"].unique()
+        all_results: List[Dict[str, Any]] = []
+
+        # ─── Iterate over projects one by one ─────────────────────────────────
+        for project_id in tqdm(project_ids, desc="Analyzing projects"):
+            project_df = result_df[result_df["project_id"] == project_id]
+            try:
+                results = self.process_project(project_id, project_df)
+                all_results.extend(results)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.error("Project %s failed with error: %s", project_id, exc)
+
+        return pd.DataFrame(all_results)
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def analyze(
+        self,
+        result_df: pd.DataFrame,
+        quality_attr_df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        High‑level entry point: prepare the quality‑attribute resources and run
+        the project‑level analysis (parallel or sequential).
+
+        Parameters
+        ----------
+        result_df : pd.DataFrame
+            All raw issue / commit / comment data, with at least the column
+            **`project_id`** (plus whatever `process_project` expects).
+        quality_attr_df : pd.DataFrame
+            Table of quality‑attribute criteria, synonyms, and optional
+            similarity scores (used by `prepare_quality_attributes`).
+
+        Returns
+        -------
+        pd.DataFrame
+            Final report with columns:
+
+            * `project_id`
+            * `criteria`          – canonical quality attribute
+            * `semantic`          – `'+'` (positive) or `'-'` (negative)
+            * `similarity_score`  – magnitude of aggregated score
+            * `issue_id`
+        """
+        # 1️⃣  Build lookup tables & embeddings for quality attributes
+        self.prepare_quality_attributes(quality_attr_df)
+
+        # 2️⃣  Choose execution mode
+        if self.parallel:
+            results_df = self.analyze_projects_parallel(result_df)
+        else:
+            results_df = self.analyze_projects_sequential(result_df)
+
+        # 3️⃣  Post‑process: tidy column names & order
+        if not results_df.empty:
+            results_df["id"] = range(len(results_df))  # optional unique row id
+            results_df = results_df[
+                [
+                    "project_id",
+                    "quality_attribute",
+                    "sentiment",
+                    "similarity_score",
+                    "issue_id",
+                ]
+            ]
+            results_df.rename(
+                columns={
+                    "quality_attribute": "criteria",
+                    "sentiment": "semantic",
+                },
+                inplace=True,
+            )
+
+        return results_df
+
+
+    # ──────────────────────────────────────────────────────────────────────────────
+    def create_visualizations(
+        self,
+        results_df: pd.DataFrame,
+        output_dir: str | Path = "output/visualizations",
+    ) -> None:
+        """
+        Generate and save four static PNG plots that summarise the analysis:
+
+        1. **Top 15 quality attributes** by mention count.  
+        2. **Sentiment distribution** for the top 5 attributes.  
+        3. **Histogram of similarity scores** across all matches.  
+        4. **Top 10 projects** by total attribute mentions.
+
+        Parameters
+        ----------
+        results_df : pd.DataFrame
+            The final report returned by `analyze`, containing at least the
+            columns: `criteria`, `semantic`, `similarity_score`, `project_id`.
+        output_dir : str | pathlib.Path, default "output/visualizations"
+            Directory where the PNG files will be written (created if absent).
+
+        Notes
+        -----
+        * Uses **Seaborn** for quick styling on top of Matplotlib.  
+        * Each figure is closed after saving to free memory in long runs.
+        """
+        if results_df.empty:
+            return  # Nothing to plot
+
+        # Ensure output directory exists
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # ——— 1️⃣  Top 15 quality attributes ————————————————————————————
+        plt.figure(figsize=(12, 8))
+        top_attrs = results_df["criteria"].value_counts().head(15)
+        sns.barplot(x=top_attrs.values, y=top_attrs.index, orient="h")
+        plt.title("Top 15 Quality Attributes Mentioned")
+        plt.xlabel("Number of Mentions")
+        plt.tight_layout()
+        plt.savefig(output_dir / "top_quality_attributes.png")
+        plt.close()
+
+        # ——— 2️⃣  Sentiment distribution for top 5 attributes ————————
+        plt.figure(figsize=(12, 8))
+        top5 = results_df["criteria"].value_counts().head(5).index
+        sentiment_ct = pd.crosstab(
+            results_df.loc[results_df["criteria"].isin(top5), "criteria"],
+            results_df.loc[results_df["criteria"].isin(top5), "semantic"],
+        )
+        sentiment_ct.plot(kind="bar", stacked=True, ax=plt.gca())
+        plt.title("Sentiment Distribution for Top 5 Quality Attributes")
+        plt.xlabel("Quality Attribute")
+        plt.ylabel("Count")
+        plt.legend(title="Sentiment")
+        plt.tight_layout()
+        plt.savefig(output_dir / "sentiment_by_attribute.png")
+        plt.close()
+
+        # ——— 3️⃣  Histogram of similarity scores ————————————————
+        plt.figure(figsize=(10, 6))
+        sns.histplot(results_df["similarity_score"], bins=20)
+        plt.title("Distribution of Similarity Scores")
+        plt.xlabel("Similarity Score")
+        plt.ylabel("Count")
+        plt.tight_layout()
+        plt.savefig(output_dir / "similarity_distribution.png")
+        plt.close()
+
+        # ——— 4️⃣  Top 10 projects by mention count ————————————————
+        plt.figure(figsize=(12, 8))
+        top_projects = results_df["project_id"].value_counts().head(10)
+        sns.barplot(
+            x=top_projects.values,
+            y=top_projects.index.astype(str),
+            orient="h",
+        )
+        plt.title("Top 10 Projects by Quality‑Attribute Mentions")
+        plt.xlabel("Number of Mentions")
+        plt.tight_layout()
+        plt.savefig(output_dir / "top_projects.png")
+        plt.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+def main(
+    result_path: str | Path = "result.csv",
+    quality_path: str | Path = "quality attributes.csv",
+    output_dir: str | Path = "output",
+    sim_threshold: float = 0.05,
+    batch_size: int = 2048,
+    use_gpu: bool = True,
+    parallel: bool = False,
+    max_workers: int | None = None,
+    max_matches_per_project: int = 1000,
+    sample_matches: bool = True,
+) -> None:
+    """
+    Command‑line entry point for the *Quality Attribute* analysis pipeline.
+
+    Parameters
+    ----------
+    result_path : str | Path, default "result.csv"
+        CSV containing issue / commit / comment data.  Required columns:
+        `issue_id`, `project_id`, `title`, `body_text`, `comments`, `comment_text`.
+    quality_path : str | Path, default "quality attributes.csv"
+        CSV with columns `criteria`, `similar_word`, and an optional
+        *w2v‑score* column (see `prepare_quality_attributes`).
+    output_dir : str | Path, default "output"
+        Directory where the CSV report and PNG visualisations are written.
+    sim_threshold : float, default 0.05
+        Cosine‑similarity threshold for matching attribute words.
+    batch_size : int, default 2048
+        Batch size for embedding and sentiment pipelines.
+    use_gpu : bool, default True
+        Enable GPU inference if a CUDA device is available.
+    parallel : bool, default False
+        Analyse projects in parallel (`ProcessPoolExecutor`) if True.
+    max_workers : int | None, default None
+        Worker count for the executor; defaults to CPU‑cores − 1.
+    max_matches_per_project : int, default 1000
+        Upper bound on stored matches per project (for memory control).
+    sample_matches : bool, default True
+        If True, sample matches when the cap is exceeded.
+
+    Side‑effects
+    ------------
+    * Writes **`quality_attribute_analysis.csv`** to *output_dir*.  
+    * Writes four PNG plots to *output_dir*/visualizations.  
+    * Prints a concise progress log to stdout.
+    """
+    print("🚀  Starting quality‑attribute analysis pipeline…")
+    print(f"📂  Loading datasets from “{result_path}” and “{quality_path}”…")
+
+    # ─── Load datasets ───────────────────────────────────────────────────────
+    result_df = pd.read_csv(result_path)
+    # Keep only the columns the analyser expects
+    result_df = result_df[
+        ["issue_id", "project_id", "title", "body_text", "comments", "comment_text"]
+    ]
+
+    quality_attr_df = pd.read_csv(quality_path)
+
+    print(f"✅  Loaded {len(result_df):,} rows from result.csv")
+    print(f"✅  Loaded {len(quality_attr_df):,} rows from quality attributes.csv")
+    print(f"🔹  {result_df['project_id'].nunique()} unique projects")
+    print(f"🔹  {quality_attr_df['criteria'].nunique()} unique quality attributes")
+
+    # ─── Instantiate analyser ────────────────────────────────────────────────
+    analyzer = QualityAttributeAnalyzer(
+        similarity_threshold=sim_threshold,
+        batch_size=batch_size,
+        use_gpu=use_gpu,
+        parallel=parallel,
+        max_workers=max_workers,
+        max_matches_per_project=max_matches_per_project,
+        sample_matches=sample_matches,
+    )
+
+    # ─── Run analysis ────────────────────────────────────────────────────────
+    results_df = analyzer.analyze(result_df, quality_attr_df)
+
+    if results_df.empty:
+        print("⚠️  No quality‑attribute mentions found above the similarity threshold.")
+        print("🏁  Pipeline execution complete!")
+        return
+
+    # ─── Summary stats ───────────────────────────────────────────────────────
+    print(f"🎉  Analysis complete – found {len(results_df):,} quality‑attribute relationships.")
+    print(f"🔸  Projects with mentions: {results_df['project_id'].nunique()}")
+    print(f"🔸  Issues with mentions:   {results_df['issue_id'].nunique()}\n")
+
+    print("🏆  Top 10 most common quality attributes:")
+    print(results_df["criteria"].value_counts().head(10), "\n")
+
+    print("😊  Sentiment distribution:")
+    print(results_df["semantic"].value_counts(), "\n")
+
+    # ─── Persist results ─────────────────────────────────────────────────────
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = output_dir / "quality_attribute_analysis.csv"
+
+    results_df.to_csv(csv_path, index=False)
+    print(f"💾  Results saved to {csv_path}")
+
+    # ─── Visualisations ──────────────────────────────────────────────────────
+    print("📊  Creating visualisations…")
+    viz_dir = output_dir / "visualizations"
+    analyzer.create_visualizations(results_df, viz_dir)
+    print(f"🖼️   Visualisations saved to {viz_dir}/")
+
+    print("🏁  Pipeline execution complete!")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    """
+    Command‑line interface for the *Quality Attribute* analysis pipeline.
+
+    Example
+    -------
+    $ python analyze.py \
+        --result result.csv \
+        --quality "quality attributes.csv" \
+        --output output \
+        --threshold 0.05 \
+        --batch-size 1024 \
+        --parallel \
+        --workers 8
+    """
+    parser = argparse.ArgumentParser(
+        description="Run the quality‑attribute analysis pipeline."
+    )
+
+    # Required file paths
+    parser.add_argument(
+        "--result",
+        default="result.csv",
+        help="Path to the result CSV file (issues / commits / comments).",
+    )
+    parser.add_argument(
+        "--quality",
+        default="quality attributes.csv",
+        help="Path to the quality‑attributes CSV file.",
+    )
+
+    # Output
+    parser.add_argument(
+        "--output",
+        default="output",
+        help="Directory where the CSV report and visualisations are written.",
+    )
+
+    # Core hyper‑parameters
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.05,
+        help="Cosine‑similarity threshold for matching (default: 0.05).",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=2048,
+        help="Batch size for embedding & sentiment inference.",
+    )
+
+    # Hardware / execution mode
+    parser.add_argument(
+        "--no-gpu",
+        action="store_true",
+        help="Disable GPU acceleration even if CUDA is available.",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable per‑project parallel processing.",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of worker processes (defaults to CPU‑cores − 1).",
+    )
+
+    # Memory / sampling controls
+    parser.add_argument(
+        "--max-matches",
+        type=int,
+        default=1000,
+        help="Maximum matches stored per project (default: 1000).",
+    )
+    parser.add_argument(
+        "--no-sampling",
+        action="store_true",
+        help="Disable sampling when max‑matches is exceeded (keep top matches).",
+    )
+
+    args = parser.parse_args()
+
+    # ─── Dispatch to the main pipeline ───────────────────────────────────────
+    main(
+        result_path=args.result,
+        quality_path=args.quality,
+        output_dir=args.output,
+        sim_threshold=args.threshold,
+        batch_size=args.batch_size,
+        use_gpu=not args.no_gpu,
+        parallel=args.parallel,
+        max_workers=args.workers,
+        max_matches_per_project=args.max_matches,
+        sample_matches=not args.no_sampling,
+    )
