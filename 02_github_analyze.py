@@ -15,14 +15,17 @@ from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Iterable, Sequence, Tuple, Any, Dict, List
+from dotenv import load_dotenv
 
 # ——— Third‑party libraries ————————————————————————————————————————————
 import numpy as np                      # Fast numerical arrays / linear algebra
 import pandas as pd                     # Tabular data manipulation
 import torch                            # Core PyTorch tensor library
 import torch.nn.functional as F         # “Functional” NN ops (activations, loss…)
+import psycopg2                         # For Postgres database
 from datasets import Dataset            # Datasets: memory‑mapped dataset object
 from tqdm import tqdm                   # Progress‑bar utility
+from sqlalchemy import create_engine, text
 
 # Hugging Face Transformers
 from transformers import (
@@ -34,6 +37,9 @@ from transformers import (
 # Visualisation (note: seaborn is optional—Matplotlib alone is often enough)
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+# load environment parameters
+load_dotenv()
 
 # ——— Logging setup ————————————————————————————————————————————————
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
@@ -1243,9 +1249,6 @@ class QualityAttributeAnalyzer:
 
 # ──────────────────────────────────────────────────────────────────────────────
 def main(
-    result_path: str | Path = "result.csv",
-    quality_path: str | Path = "quality attributes.csv",
-    output_dir: str | Path = "output",
     sim_threshold: float = 0.05,
     batch_size: int = 2048,
     use_gpu: bool = True,
@@ -1259,14 +1262,6 @@ def main(
 
     Parameters
     ----------
-    result_path : str | Path, default "result.csv"
-        CSV containing issue / commit / comment data.  Required columns:
-        `issue_id`, `project_id`, `title`, `body_text`, `comments`, `comment_text`.
-    quality_path : str | Path, default "quality attributes.csv"
-        CSV with columns `criteria`, `similar_word`, and an optional
-        *w2v‑score* column (see `prepare_quality_attributes`).
-    output_dir : str | Path, default "output"
-        Directory where the CSV report and PNG visualisations are written.
     sim_threshold : float, default 0.05
         Cosine‑similarity threshold for matching attribute words.
     batch_size : int, default 2048
@@ -1288,22 +1283,21 @@ def main(
     * Writes four PNG plots to *output_dir*/visualizations.  
     * Prints a concise progress log to stdout.
     """
-    print("🚀  Starting quality‑attribute analysis pipeline…")
-    print(f"📂  Loading datasets from “{result_path}” and “{quality_path}”…")
+    print("🚀  Starting quality‑attribute analysis pipeline…", flush=True)
 
-    # ─── Load datasets ───────────────────────────────────────────────────────
-    result_df = pd.read_csv(result_path)
-    # Keep only the columns the analyser expects
-    result_df = result_df[
-        ["issue_id", "project_id", "title", "body_text", "comments", "comment_text"]
-    ]
+    # Connect to the database
+    DB_USER = os.getenv("DB_USER")
+    DB_PASSWORD = os.getenv("DB_PASSWORD")
+    DB_HOST = os.getenv("DB_HOST")
+    DB_PORT = os.getenv("DB_PORT")
+    DB_NAME = os.getenv("DB_NAME")
+    db_url = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    engine = create_engine(db_url)
+    conn = engine.connect()
 
-    quality_attr_df = pd.read_csv(quality_path)
-
-    print(f"✅  Loaded {len(result_df):,} rows from result.csv")
-    print(f"✅  Loaded {len(quality_attr_df):,} rows from quality attributes.csv")
-    print(f"🔹  {result_df['project_id'].nunique()} unique projects")
-    print(f"🔹  {quality_attr_df['criteria'].nunique()} unique quality attributes")
+    # Load the quality attributes (read only once)
+    print("Loading quality attributes from 'similar_words' table...", flush=True)
+    quality_attr_df = pd.read_sql("SELECT criteria, similar_word, max_w2v_score FROM similar_words", conn)
 
     # ─── Instantiate analyser ────────────────────────────────────────────────
     analyzer = QualityAttributeAnalyzer(
@@ -1316,40 +1310,78 @@ def main(
         sample_matches=sample_matches,
     )
 
-    # ─── Run analysis ────────────────────────────────────────────────────────
-    results_df = analyzer.analyze(result_df, quality_attr_df)
+    # Prepare quality attribute embeddings
+    # analyzer.prepare_quality_attributes(quality_attr_df)
 
-    if results_df.empty:
-        print("⚠️  No quality‑attribute mentions found above the similarity threshold.")
-        print("🏁  Pipeline execution complete!")
-        return
+    # Create result table if not exists
+    with engine.begin() as con:
+        con.execute(text("""
+            CREATE TABLE IF NOT EXISTS quality_attribute_analysis (
+                id SERIAL PRIMARY KEY,
+                project_id BIGINT,
+                criteria TEXT,
+                semantic TEXT,
+                similarity_score FLOAT,
+                issue_id BIGINT
+            );
+        """))
+        con.execute(text("""
+            CREATE TABLE IF NOT EXISTS quality_attribute_analysis_tracker (
+                last_issue_id BIGINT
+            );
+        """))
+        # Insert a progress row if it doesn't exist
+        result = con.execute(text("SELECT COUNT(*) FROM quality_attribute_analysis_tracker")).scalar()
+        if result == 0:
+            con.execute(text("INSERT INTO quality_attribute_analysis_tracker (last_issue_id) VALUES (0);"))
 
-    # ─── Summary stats ───────────────────────────────────────────────────────
-    print(f"🎉  Analysis complete – found {len(results_df):,} quality‑attribute relationships.")
-    print(f"🔸  Projects with mentions: {results_df['project_id'].nunique()}")
-    print(f"🔸  Issues with mentions:   {results_df['issue_id'].nunique()}\n")
+    # Determine starting point
+    last_issue_id = conn.execute(text("SELECT MAX(last_issue_id) FROM quality_attribute_analysis_tracker")).scalar()
+    print(f"Resuming from issue_id > {last_issue_id}", flush=True)
 
-    print("🏆  Top 10 most common quality attributes:")
-    print(results_df["criteria"].value_counts().head(10), "\n")
+    # Batch size for issues to analyze
+    issue_batch_size = 1000
 
-    print("😊  Sentiment distribution:")
-    print(results_df["semantic"].value_counts(), "\n")
+    while True:
+        # Read next batch of issues with comments
+        query = f"""
+            SELECT i.issue_id, i.project_id, i.title, i.body_text, i.state_reason,
+                   STRING_AGG(c.body_text, '\n') AS comment_text
+            FROM issues i
+            LEFT JOIN comments c ON c.issue_id = i.issue_id
+            WHERE i.issue_id > :last_id
+            AND (i.title IS NOT NULL OR i.body_text IS NOT NULL)
+            GROUP BY i.issue_id
+            ORDER BY i.issue_id ASC
+            LIMIT {issue_batch_size};
+        """
+        batch_df = pd.read_sql(text(query), conn, params={"last_id": int(last_issue_id)})
 
-    # ─── Persist results ─────────────────────────────────────────────────────
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = output_dir / "quality_attribute_analysis.csv"
+        if batch_df.empty:
+            print("⚠️  No more issues to process.", flush=True)
+            break
 
-    results_df.to_csv(csv_path, index=False)
-    print(f"💾  Results saved to {csv_path}")
+        print(f"🏁  Processing {len(batch_df)} issues...", flush=True)
 
-    # ─── Visualisations ──────────────────────────────────────────────────────
-    print("📊  Creating visualisations…")
-    viz_dir = output_dir / "visualizations"
-    analyzer.create_visualizations(results_df, viz_dir)
-    print(f"🖼️   Visualisations saved to {viz_dir}/")
+        # Track the highest issue ID processed
+        max_issue_id = batch_df["issue_id"].max()
 
-    print("🏁  Pipeline execution complete!")
+        # Analyze the batch
+        results_df = analyzer.analyze(batch_df, quality_attr_df)
+
+        if not results_df.empty:
+            # Append to result table
+            results_df.to_sql("quality_attribute_analysis", conn, if_exists="append", index=False)
+            print(f"🏆  Stored {len(results_df)} results to database.", flush=True)
+
+        # Update progress tracker
+        with engine.begin() as con:
+            con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": int(max_issue_id)})
+
+        last_issue_id = max_issue_id
+
+    print("🏁  Pipeline execution complete!", flush=True)    
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1360,9 +1392,6 @@ if __name__ == "__main__":
     Example
     -------
     $ python analyze.py \
-        --result result.csv \
-        --quality "quality attributes.csv" \
-        --output output \
         --threshold 0.05 \
         --batch-size 1024 \
         --parallel \
@@ -1370,25 +1399,6 @@ if __name__ == "__main__":
     """
     parser = argparse.ArgumentParser(
         description="Run the quality‑attribute analysis pipeline."
-    )
-
-    # Required file paths
-    parser.add_argument(
-        "--result",
-        default="result.csv",
-        help="Path to the result CSV file (issues / commits / comments).",
-    )
-    parser.add_argument(
-        "--quality",
-        default="quality attributes.csv",
-        help="Path to the quality‑attributes CSV file.",
-    )
-
-    # Output
-    parser.add_argument(
-        "--output",
-        default="output",
-        help="Directory where the CSV report and visualisations are written.",
     )
 
     # Core hyper‑parameters
@@ -1440,9 +1450,6 @@ if __name__ == "__main__":
 
     # ─── Dispatch to the main pipeline ───────────────────────────────────────
     main(
-        result_path=args.result,
-        quality_path=args.quality,
-        output_dir=args.output,
         sim_threshold=args.threshold,
         batch_size=args.batch_size,
         use_gpu=not args.no_gpu,
