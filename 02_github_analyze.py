@@ -1105,8 +1105,8 @@ class QualityAttributeAnalyzer:
     # ──────────────────────────────────────────────────────────────────────────────
     def analyze(
         self,
-        result_df: pd.DataFrame,
-        quality_attr_df: pd.DataFrame,
+        result_df: pd.DataFrame
+        #,quality_attr_df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
         High‑level entry point: prepare the quality‑attribute resources and run
@@ -1133,7 +1133,7 @@ class QualityAttributeAnalyzer:
             * `issue_id`
         """
         # 1️⃣  Build lookup tables & embeddings for quality attributes
-        self.prepare_quality_attributes(quality_attr_df)
+        # self.prepare_quality_attributes(quality_attr_df)
 
         # 2️⃣  Choose execution mode
         if self.parallel:
@@ -1370,7 +1370,7 @@ def main(
     )
 
     # Prepare quality attribute embeddings
-    # analyzer.prepare_quality_attributes(quality_attr_df)
+    analyzer.prepare_quality_attributes(quality_attr_df)
 
     # Create result table if not exists
     with engine.begin() as con:
@@ -1426,7 +1426,7 @@ def main(
         max_issue_id = batch_df["issue_id"].max()
 
         # Analyze the batch
-        results_df = analyzer.analyze(batch_df, quality_attr_df)
+        results_df = analyzer.analyze(batch_df)#, quality_attr_df)
 
         # Append to result table
         persist_results(results_df, conn.connection)
@@ -1436,7 +1436,6 @@ def main(
             con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": int(max_issue_id)})
 
         last_issue_id = max_issue_id
-        break # temporary.
 
     print("🏁  Pipeline execution complete!", flush=True)    
 
