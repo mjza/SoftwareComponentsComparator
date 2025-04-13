@@ -1429,7 +1429,7 @@ def main(
         results_df = analyzer.analyze(batch_df, quality_attr_df)
 
         # Append to result table
-        persist_results(results_df, conn)
+        persist_results(results_df, conn.connection)
 
         # Update progress tracker
         with engine.begin() as con:
