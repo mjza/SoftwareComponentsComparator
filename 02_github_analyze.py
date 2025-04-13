@@ -23,9 +23,11 @@ import pandas as pd                     # Tabular data manipulation
 import torch                            # Core PyTorch tensor library
 import torch.nn.functional as F         # “Functional” NN ops (activations, loss…)
 import psycopg2                         # For Postgres database
+from psycopg2.extras import execute_values
 from datasets import Dataset            # Datasets: memory‑mapped dataset object
 from tqdm import tqdm                   # Progress‑bar utility
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import Engine
 
 # Hugging Face Transformers
 from transformers import (
@@ -1247,6 +1249,63 @@ class QualityAttributeAnalyzer:
         plt.close()
 
 
+# --------------------------------------------------------------------------
+def persist_results(results_df, conn):
+    """
+    Insert rows from *results_df* into the `quality_attribute_analysis` table
+    using a single batched INSERT.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Must have columns:
+        ['project_id', 'criteria', 'semantic', 'similarity_score', 'issue_id']
+    conn : psycopg2 connection OR SQLAlchemy Engine
+    """
+    if results_df.empty:
+        print("⚠️  No rows to persist — skipping INSERT.", flush=True)
+        return
+
+    # ------------------------------------------------------------------
+    # 1️⃣  Build the VALUES list  (None for the serial `id` column)
+    # ------------------------------------------------------------------
+    records = [
+        (
+            int(row.project_id) if pd.notna(row.project_id) else None,
+            row.criteria,
+            row.semantic,
+            float(row.similarity_score) if pd.notna(row.similarity_score) else None,
+            int(row.issue_id) if pd.notna(row.issue_id) else None,
+        )
+        for row in results_df.itertuples(index=False)
+    ]
+
+    insert_sql = """
+        INSERT INTO public.quality_attribute_analysis
+            (project_id, criteria, semantic, similarity_score, issue_id)
+        VALUES %s
+    """
+
+    # ------------------------------------------------------------------
+    # 2️⃣  Get a DB‑API cursor no matter what kind of `conn` we got
+    # ------------------------------------------------------------------
+    needs_close = False
+    if isinstance(conn, Engine):                     # SQLAlchemy engine
+        raw_conn = conn.raw_connection()
+        needs_close = True
+    else:                                            # psycopg2 connection
+        raw_conn = conn
+
+    try:
+        with raw_conn.cursor() as cur:
+            execute_values(cur, insert_sql, records, page_size=10_000)
+        raw_conn.commit()
+        print(f"🏆  Stored {len(records):,} results to database.", flush=True)
+    finally:
+        if needs_close:
+            raw_conn.close()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 def main(
     sim_threshold: float = 0.05,
@@ -1340,7 +1399,7 @@ def main(
     print(f"Resuming from issue_id > {last_issue_id}", flush=True)
 
     # Batch size for issues to analyze
-    issue_batch_size = 1000
+    issue_batch_size = 100
 
     while True:
         # Read next batch of issues with comments
@@ -1369,16 +1428,15 @@ def main(
         # Analyze the batch
         results_df = analyzer.analyze(batch_df, quality_attr_df)
 
-        if not results_df.empty:
-            # Append to result table
-            results_df.to_sql("quality_attribute_analysis", conn, if_exists="append", index=False)
-            print(f"🏆  Stored {len(results_df)} results to database.", flush=True)
+        # Append to result table
+        persist_results(results_df, conn)
 
         # Update progress tracker
         with engine.begin() as con:
             con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": int(max_issue_id)})
 
         last_issue_id = max_issue_id
+        break # temporary.
 
     print("🏁  Pipeline execution complete!", flush=True)    
 
