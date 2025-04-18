@@ -128,12 +128,19 @@ def fetch_projects():
     offset = 0
     
     while True:
-        cursor.execute("""SELECT p.id, p.repository_url FROM projects p 
-                            WHERE 
-                                p.repository_url IS NOT NULL 
-                            AND 
-                                p.id NOT IN (SELECT DISTINCT i.project_id FROM issues i) 
-                            ORDER BY id ASC LIMIT %s OFFSET %s """, 
+        cursor.execute("""
+                        SELECT p.id, p.repository_url 
+                        FROM projects p
+                        WHERE 
+                            p.repository_url IS NOT NULL
+                            AND NOT EXISTS (
+                                SELECT 1 
+                                FROM issues i 
+                                WHERE i.project_id = p.id
+                            )
+                        ORDER BY p.id ASC
+                        LIMIT %s OFFSET %s
+                       """, 
                             (BATCH_SIZE, offset))
         projects = cursor.fetchall()
         if not projects:
