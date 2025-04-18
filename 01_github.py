@@ -128,8 +128,10 @@ def fetch_projects():
     offset = 0
     
     while True:
+        # DISTINCT ON (p.repository_url) ensures only one row per unique repository_url.
+        # ORDER BY p.repository_url, p.id ensures that within each group of same repository_url, the row with the smallest p.id is picked.
         cursor.execute("""
-                        SELECT p.id, p.repository_url 
+                        SELECT DISTINCT ON (p.repository_url) p.id, p.repository_url
                         FROM projects p
                         WHERE 
                             p.repository_url IS NOT NULL
@@ -138,7 +140,7 @@ def fetch_projects():
                                 FROM issues i 
                                 WHERE i.project_id = p.id
                             )
-                        ORDER BY p.id ASC
+                        ORDER BY p.repository_url, p.id ASC
                         LIMIT %s OFFSET %s
                        """, 
                             (BATCH_SIZE, offset))
@@ -281,30 +283,7 @@ def insert_issue_data(conn, issue_data):
         INSERT INTO issues 
         (issue_id, url, project_id, repository_id, repository_url, node_id, number, title, owner, owner_type, owner_id, labels, state, locked, comments, created_at, updated_at, closed_at, author_association, active_lock_reason, body, body_text, reactions, state_reason) 
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT(issue_id) DO UPDATE SET 
-            url = EXCLUDED.url,
-            project_id = EXCLUDED.project_id,
-            repository_id = EXCLUDED.repository_id,
-            repository_url = EXCLUDED.repository_url,
-            node_id = EXCLUDED.node_id,
-            number = EXCLUDED.number,
-            title = EXCLUDED.title,
-            owner = EXCLUDED.owner,
-            owner_type = EXCLUDED.owner_type,
-            owner_id = EXCLUDED.owner_id,
-            labels = EXCLUDED.labels,
-            state = EXCLUDED.state,
-            locked = EXCLUDED.locked,        
-            comments = EXCLUDED.comments,
-            created_at = EXCLUDED.created_at,
-            updated_at = EXCLUDED.updated_at,
-            closed_at = EXCLUDED.closed_at,
-            author_association = EXCLUDED.author_association,
-            active_lock_reason = EXCLUDED.active_lock_reason,
-            body = EXCLUDED.body,
-            body_text = EXCLUDED.body_text,
-            reactions = EXCLUDED.reactions,
-            state_reason = EXCLUDED.state_reason
+        ON CONFLICT(issue_id) DO NOTHING
         """
         cursor.execute(sql, (
             issue_data.get('id'), 
@@ -345,17 +324,7 @@ def insert_comment_data(conn, comment_data):
         INSERT INTO comments 
         (id, node_id, url, issue_id, issue_url, owner, created_at, updated_at, author_association, body, body_text) 
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT(id) DO UPDATE SET 
-            node_id = EXCLUDED.node_id,
-            url = EXCLUDED.url,
-            issue_id = EXCLUDED.issue_id,
-            issue_url = EXCLUDED.issue_url,
-            owner = EXCLUDED.owner,
-            created_at = EXCLUDED.created_at,
-            updated_at = EXCLUDED.updated_at,
-            author_association = EXCLUDED.author_association,
-            body = EXCLUDED.body,
-            body_text = EXCLUDED.body_text
+        ON CONFLICT(id) DO NOTHING
         """
         cursor.execute(sql, (
             comment_data.get('id'), 
