@@ -132,7 +132,7 @@ def fetch_projects():
                             WHERE 
                                 p.repository_url IS NOT NULL 
                             AND 
-                                p.id NOT IN (SELECT i.project_id FROM issues i) 
+                                p.id NOT IN (SELECT DISTINCT i.project_id FROM issues i) 
                             ORDER BY id ASC LIMIT %s OFFSET %s """, 
                             (BATCH_SIZE, offset))
         projects = cursor.fetchall()
