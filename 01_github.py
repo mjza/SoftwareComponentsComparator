@@ -197,7 +197,7 @@ def fetch_github_issues(repo_url, project_id, repository_id):
                     except Exception as e:
                         print(f"Error processing issue {issue.get('id', 'Unknown')} for project {project_id}: {e}", flush=True)
                         exit(1)
-                print(f"Stored {len(issues)} issues for repository {repo_url}", flush=True)
+                print(f"Stored {len(issues)} issues for project {project_id}", flush=True)
                 if 'next' in response.links:
                     params['page'] += 1
                 else:
