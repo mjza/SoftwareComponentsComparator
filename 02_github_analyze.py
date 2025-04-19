@@ -1386,56 +1386,70 @@ def main(
         """))
         con.execute(text("""
             CREATE TABLE IF NOT EXISTS quality_attribute_analysis_tracker (
-                last_issue_id BIGINT
+                project_id     BIGINT PRIMARY KEY,
+                last_issue_id  BIGINT NOT NULL DEFAULT 0
             );
         """))
-        # Insert a progress row if it doesn't exist
-        result = con.execute(text("SELECT COUNT(*) FROM quality_attribute_analysis_tracker")).scalar()
-        if result == 0:
-            con.execute(text("INSERT INTO quality_attribute_analysis_tracker (last_issue_id) VALUES (0);"))
 
-    # Determine starting point
-    last_issue_id = conn.execute(text("SELECT MAX(last_issue_id) FROM quality_attribute_analysis_tracker")).scalar()
-    print(f"Resuming from issue_id > {last_issue_id}", flush=True)
+    # Step 1: Get all eligible project_ids
+    project_ids = pd.read_sql("""
+        SELECT i.project_id
+        FROM issues i
+        LEFT JOIN quality_attribute_analysis qaa ON i.project_id = qaa.project_id
+        WHERE qaa.project_id IS NULL
+        GROUP BY i.project_id
+        HAVING COUNT(i.issue_id) > 100
+        ORDER BY i.project_id;
+    """, conn)["project_id"].tolist()    
 
     # Batch size for issues to analyze
     issue_batch_size = 100
 
-    while True:
-        # Read next batch of issues with comments
-        query = f"""
-            SELECT i.issue_id, i.project_id, i.title, i.body_text, i.state_reason,
-                   STRING_AGG(c.body_text, '\n') AS comment_text
-            FROM issues i
-            LEFT JOIN comments c ON c.issue_id = i.issue_id
-            WHERE i.issue_id > :last_id
-            AND (i.title IS NOT NULL OR i.body_text IS NOT NULL)
-            GROUP BY i.issue_id
-            ORDER BY i.issue_id ASC
-            LIMIT {issue_batch_size};
-        """
-        batch_df = pd.read_sql(text(query), conn, params={"last_id": int(last_issue_id)})
+    # Step 2: For each project, get its last processed issue
+    for project_id in project_ids:
+        res = conn.execute(text("""
+            SELECT last_issue_id FROM quality_attribute_analysis_tracker
+            WHERE project_id = :pid
+        """), {"pid": project_id}).fetchone()
 
-        if batch_df.empty:
-            print("⚠️  No more issues to process.", flush=True)
-            break
+        last_issue_id = res[0] if res else 0
+        print(f"📂 Project {project_id}: resuming from issue {last_issue_id}", flush=True)
 
-        print(f"🏁  Processing {len(batch_df)} issues...", flush=True)
+        while True:
+            batch_df = pd.read_sql(text("""
+                SELECT i.issue_id, i.project_id, i.title, i.body_text, i.state_reason,
+                    STRING_AGG(c.body_text, '\n') AS comment_text
+                FROM issues i
+                LEFT JOIN comments c ON c.issue_id = i.issue_id
+                WHERE i.project_id = :pid AND i.issue_id > :last_id
+                AND (i.title IS NOT NULL OR i.body_text IS NOT NULL)
+                GROUP BY i.issue_id
+                ORDER BY i.issue_id
+                LIMIT :batch_size
+            """), conn, params={"pid": project_id, "last_id": last_issue_id, "batch_size": issue_batch_size})
 
-        # Track the highest issue ID processed
-        max_issue_id = batch_df["issue_id"].max()
+            if batch_df.empty:
+                print(f"✅ Done with project {project_id}", flush=True)
+                break
 
-        # Analyze the batch
-        results_df = analyzer.analyze(batch_df)#, quality_attr_df)
+            print(f"🏁  Processing {len(batch_df)} issues for project {project_id}...", flush=True)
 
-        # Append to result table
-        persist_results(results_df, conn.connection)
+            # Analyze the batch
+            results_df = analyzer.analyze(batch_df)#, quality_attr_df)
 
-        # Update progress tracker
-        with engine.begin() as con:
-            con.execute(text("UPDATE quality_attribute_analysis_tracker SET last_issue_id = :new_id"), {"new_id": int(max_issue_id)})
+            # Append to result table
+            persist_results(results_df, conn.connection)
 
-        last_issue_id = max_issue_id
+            # Track the highest issue ID processed
+            last_issue_id = batch_df["issue_id"].max()
+
+            # Update tracker
+            conn.execute(text("""
+                INSERT INTO quality_attribute_analysis_tracker (project_id, last_issue_id)
+                VALUES (:pid, :iid)
+                ON CONFLICT (project_id)
+                DO UPDATE SET last_issue_id = EXCLUDED.last_issue_id
+            """), {"pid": project_id, "iid": last_issue_id})        
 
     print("🏁  Pipeline execution complete!", flush=True)    
 
