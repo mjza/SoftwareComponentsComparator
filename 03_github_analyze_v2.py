@@ -86,7 +86,7 @@ class Phi2OptimizedAnalyzer:
                 CREATE TABLE IF NOT EXISTS quality_attribute_analysis_v2 (
                     id SERIAL PRIMARY KEY,
                     project_id BIGINT,
-                    criteria TEXT,
+                    attribute TEXT,
                     sentiment TEXT,
                     similarity_score FLOAT,
                     issue_id BIGINT,
@@ -104,8 +104,9 @@ class Phi2OptimizedAnalyzer:
     def load_quality_attributes(self):
         logging.info("Loading quality attributes from DB...")
         self.quality_df = pd.read_sql("""
-            SELECT DISTINCT criteria, definition
+            SELECT DISTINCT attribute, definition
             FROM quality_attributes
+            WHERE definition IS NOT NULL
         """, self.db_engine)
         
 
@@ -126,13 +127,13 @@ class Phi2OptimizedAnalyzer:
         results_df['project_id'] = project_id  # attach project ID to each row
 
         # Reorder and select required columns only
-        records = results_df[['project_id', 'criteria', 'semantic', 'similarity_score', 'issue_id']].to_dict(orient='records')
+        records = results_df[['project_id', 'attribute', 'semantic', 'similarity_score', 'issue_id']].to_dict(orient='records')
 
         with self.db_engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO quality_attribute_analysis_v2 (project_id, criteria, semantic, similarity_score, issue_id)
-                    VALUES (:project_id, :criteria, :semantic, :similarity_score, :issue_id)
+                    INSERT INTO quality_attribute_analysis_v2 (project_id, attribute, semantic, similarity_score, issue_id)
+                    VALUES (:project_id, :attribute, :semantic, :similarity_score, :issue_id)
                 """),
                 records
             )
@@ -173,7 +174,7 @@ class Phi2OptimizedAnalyzer:
                 sentiment = self.analyze_sentiment(issue_row['combined_text'])
 
                 results.append({
-                    'criteria': quality_row['criteria'],
+                    'attribute': quality_row['attribute'],
                     'reason': None,
                     'issue_id': issue_row['issue_id'],
                     'project_id': issue_row['project_id'],
