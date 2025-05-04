@@ -105,7 +105,7 @@ class Phi2OptimizedAnalyzer:
         logging.info("Loading quality attributes from DB...")
         self.quality_df = pd.read_sql("""
             SELECT DISTINCT attribute, definition
-            FROM quality_attributes
+            FROM quality_attributes_v2
             WHERE definition IS NOT NULL
         """, self.db_engine)
         
