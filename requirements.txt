@@ -13,3 +13,5 @@ tqdm
 datasets 
 transformers
 sqlalchemy
+vaderSentiment
+flash-attn
