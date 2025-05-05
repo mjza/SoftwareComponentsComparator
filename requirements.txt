@@ -13,5 +13,5 @@ tqdm
 datasets 
 transformers
 sqlalchemy
+scikit-learn
 vaderSentiment
-flash-attn
