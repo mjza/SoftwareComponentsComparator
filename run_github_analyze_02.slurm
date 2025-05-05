@@ -2,7 +2,7 @@
 #SBATCH --job-name=github_analyze_2
 #SBATCH --output=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_output_%j.log
 #SBATCH --error=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/logs/job_error_%j.log
-#SBATCH --time=1-00:00:00  # 1 day
+#SBATCH --time=00-01:00:00  # 1 day
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
