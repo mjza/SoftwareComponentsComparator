@@ -24,6 +24,10 @@ import gc  # Garbage collection for memory management
 from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 import os
+from dotenv import load_dotenv
+
+# load environment parameters
+load_dotenv()
 
 # Configure logging to provide detailed runtime information
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
