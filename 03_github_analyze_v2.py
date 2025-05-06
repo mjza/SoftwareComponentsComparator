@@ -210,11 +210,12 @@ class Phi2OptimizedAnalyzer:
         self.load_quality_attributes()
         
         project_ids = pd.read_sql(text("""
-            SELECT DISTINCT i.project_id
+            SELECT i.project_id
             FROM issues i
             LEFT JOIN quality_attribute_analysis_tracker_v2 t
             ON i.project_id = t.project_id
             WHERE i.issue_id > COALESCE(t.last_issue_id, 0)
+            GROUP BY i.project_id
             HAVING COUNT(i.issue_id) > 100
             ORDER BY COUNT(i.issue_id) DESC
         """), self.db_engine)["project_id"].tolist()
