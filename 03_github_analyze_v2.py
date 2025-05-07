@@ -131,13 +131,13 @@ class Phi2OptimizedAnalyzer:
         results_df['project_id'] = project_id  # attach project ID to each row
 
         # Reorder and select required columns only
-        records = results_df[['project_id', 'attribute', 'semantic', 'similarity_score', 'issue_id']].to_dict(orient='records')
+        records = results_df[['project_id', 'attribute', 'sentiment', 'similarity_score', 'issue_id']].to_dict(orient='records')
 
         with self.db_engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO quality_attribute_analysis_v2 (project_id, attribute, semantic, similarity_score, issue_id)
-                    VALUES (:project_id, :attribute, :semantic, :similarity_score, :issue_id)
+                    INSERT INTO quality_attribute_analysis_v2 (project_id, attribute, sentiment, similarity_score, issue_id)
+                    VALUES (:project_id, :attribute, :sentiment, :similarity_score, :issue_id)
                 """),
                 records
             )
