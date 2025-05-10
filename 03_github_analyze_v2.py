@@ -234,7 +234,7 @@ class Phi2OptimizedAnalyzer:
         res = conn.execute(text("""
             SELECT last_issue_id FROM quality_attribute_analysis_tracker_v2
             WHERE project_id = :pid
-        """), {"pid": project_id}).fetchone()
+        """), {"pid": int(project_id)}).fetchone()
 
         last_issue_id = res[0] if res else 0
         logging.info(f"📂 Project {project_id}: starting from issue {last_issue_id}")
@@ -250,7 +250,7 @@ class Phi2OptimizedAnalyzer:
                 GROUP BY i.issue_id
                 ORDER BY i.issue_id
                 LIMIT :batch_size
-            """), conn, params={"pid": project_id, "last_id": last_issue_id, "batch_size": issue_batch_size})
+            """), conn, params={"pid": int(project_id), "last_id": int(last_issue_id), "batch_size": int(issue_batch_size)})
 
             if batch_df.empty:
                 logging.info(f"✅ Done with project {project_id}")
