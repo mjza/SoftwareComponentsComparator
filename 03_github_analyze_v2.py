@@ -115,6 +115,10 @@ class Phi2OptimizedAnalyzer:
         
 
     def track_last_issue_id(self, project_id: int, last_issue_id: int):
+        # Convert to native Python int to avoid psycopg2 'can't adapt type' error
+        project_id = int(project_id)
+        last_issue_id = int(last_issue_id)
+    
         with self.db_engine.begin() as conn:
             conn.execute(text("""
                 INSERT INTO quality_attribute_analysis_tracker_v2 (project_id, last_issue_id)
@@ -421,9 +425,9 @@ class Phi2OptimizedAnalyzer:
         scores = self.sentiment_analyzer.polarity_scores(str(text))
 
         # Compound score is a normalized, weighted composite score
-        if scores['compound'] >= 0.05:
+        if scores['compound'] > 0:
             return '+'
-        elif scores['compound'] <= -0.05:
+        elif scores['compound'] < 0:
             return '-'
         else:
             return '0'
