@@ -429,7 +429,7 @@ def evaluate_llms():
     issues_df, attributes_df = fetch_data()
     chunking_strategy = "token"  # Stick to token chunking for LLMs
     threshold_config = "default"  # we don't have scores in LLM to define thresholds
-    num_trials = 3
+    num_trials = 5
 
     for model_name in models:
         print(f"Evaluating {model_name}")
