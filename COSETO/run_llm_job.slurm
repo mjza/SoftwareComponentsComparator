@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=GitHubIssues
+#SBATCH --job-name=LLM
 #SBATCH --output=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/COSETO/logs/job_output_%j.log
 #SBATCH --error=/work/barcomb_lab/Mahdi/SoftwareComponentsComparator/COSETO/logs/job_error_%j.log
 #SBATCH --time=1-00:00:00  # 1 day
