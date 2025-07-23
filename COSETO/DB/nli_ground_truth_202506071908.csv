@@ -1,0 +1,306 @@
+"issue_id","attribute_id","is_related","relevant_contents","label"
+580466670,4,1.0,Having it out of the box would improve usability for all users. Especially during debugging.,maybe-relevant
+580470271,4,1.0,"If Playwright would support adding a penetrateShadowDOM on a browser, browserContext or page, it would be amazing for usability.",maybe-relevant
+623290298,4,0.0,,not-relevant
+647432954,4,1.0,It would be very useful to have these types exported to be available for developers.,maybe-relevant
+689718497,4,1.0,"We provide Docker image to help with usability. Docker image that restricts installing packages and demands rolling your own image atop is sometimes very frustrating to use (at least, in my experience).",maybe-relevant
+4452596,4,1.0,Usability Improvements,maybe-relevant
+8372093,4,1.0,I think this is an important usability issue across dotCMS. The enter key should work as expected for forms and form submittals.,maybe-relevant
+8430461,4,1.0,"For clients with large numbers of form and jasper reports, finding one in particular can be really difficult.",maybe-relevant
+8783394,4,1.0,Usability issue with button on form drop-down lists,maybe-relevant
+8955324,4,1.0,report manager usability improvements,maybe-relevant
+27729977,4,1.0,to greatly increase the usability and browse-ability of the back button when browsing new pages from an Infinite Scroll view.,maybe-relevant
+33466342,4,1.0,"It's confusing, and the options set for it is non-consequential for the overall usability and functionality of the theme.",maybe-relevant
+33829594,4,0.5,"I humbly ask that the Editor let us to embellish our web logs with that apex of good usability and tasteful design, the Marquee effect.",maybe-not-relevant
+38159779,4,1.0,"Because of this, we need to establish a baseline for maximum usability, which is a white background with black text.",maybe-relevant
+93585013,4,1.0,"It leaves the user experience of this plugin really really frustrating, where the options which you expose in the widget, in a sense and in practice, seem utterly broken.",maybe-relevant
+1106916,4,1.0,"I'm more prone to using guides, however from a simple perspective of the site usability, these are some concerns that I brought up.",maybe-relevant
+555221298,1,0.5,"as an end user I would like my testers and developers to be able to write the simplest integration tests, have them be reliable without having to debug why they sometimes fail",maybe-not-relevant
+567125162,1,1.0,"Unfortunately, the issue is slightly different here: first navigation is canceled and that mistakenly 'cancels' the second one.",maybe-relevant
+794684879,1,1.0,PW ships with the nightly version of Chromium and I think it could be beneficial to point to the Dev channel to be able to 'jump' faulty versions and increase reliability for a specific version.,maybe-relevant
+1190567115,1,1.0,Mainly for reliability of smoke tests we have our own hooks to make sure there are no stray processes around in case of issues.,maybe-relevant
+1298116497,1,0.0,,not-relevant
+28181662,1,1.0,Should improve bin asset reliability,maybe-relevant
+218608237,1,1.0,"STABILITY AND RELIABILITY:
+Ensured gradle is run WITHOUT daemon everywhere",maybe-relevant
+1058746870,1,1.0,"Other methods, such as bypassing the LB to access nodes directly, present performance and reliability issues, so they can't be implemented for any customers on more than a temporary (custom) basis.",maybe-relevant
+1505742526,1,0.0,,not-relevant
+2380867382,1,1.0,"Proposed Objective
+Reliability",maybe-relevant
+43534582,1,1.0,I think this piece of code should be designed more reliably.,maybe-relevant
+123780603,1,1.0,This Pull Request contains speed and reliability improvements of the Display Posts Widget.,maybe-relevant
+194352159,1,0.5,"I had to have my webhost restore my website files to an earlier state so that I could recover everything, which ended up being a big pain in the ***.",maybe-not-relevant
+234358829,1,1.0,"Finally, this patch tries to skip non-Jetpack plugins when booting wp-cli. This improves security and reliability.",maybe-relevant
+315853993,1,0.0,,not-relevant
+207602513,1,0.5,ogle plans to improve SSL Certificate Transparency within the Chrome browser with the goal of strengthening the security and reliability of the Internet.,maybe-not-relevant
+783333786,1,0.0,,not-relevant
+2032669310,2,0.0,,not-relevant
+525112555,3,0.0,,not-relevant
+554298149,3,1.0,"Guys, just consider the security faults by using IE.",maybe-relevant
+554883000,3,1.0,This error occurs when content security policy on document is enabled. Fix it by disabling CSP by setting bypassCSP to true in newContext method.,maybe-relevant
+557053891,3,0.0,,not-relevant
+557383700,3,0.0,,not-relevant
+3928208,3,1.0,in fact we can add a security-constraint on web.xml to prevent public access to it.,maybe-relevant
+4609366,3,0.0,,not-relevant
+5357993,3,1.0,The User being passed in doesn't have permission to requested User Object,maybe-relevant
+5878513,3,0.0,,not-relevant
+6018303,3,0.0,,not-relevant
+26564295,3,1.0,"Using .svn files on the other hand isn't very portable and may cause weird issues, if not security ones, too.",maybe-relevant
+30713933,3,1.0,could stack with other things to be a potentially serious security hole.,maybe-relevant
+31731046,3,1.0,"When I try commenting on a post using Jetpack-enhanced comments, I get an HTTPS security error in Chrome which blocks the HTTP request containing comment submission from being sent",maybe-relevant
+34600218,3,0.0,,not-relevant
+35291880,3,1.0,"An iframe to log in may not be great, from a security perspective. ",maybe-relevant
+326587,3,0.0,,not-relevant
+431181,3,0.0,,not-relevant
+652974,3,0.0,,not-relevant
+838125,3,1.0,Seems to be a problem with the stateful inspection firewall between server and workstation.,maybe-relevant
+2013773,3,0.5,"document.domain is mutable, and part of a security model for cross-subdomain communication.",maybe-not-relevant
+555221298,5,0.0,,not-relevant
+567857336,5,1.0,"Something in the middle for efficiency? Wait for dom, but don't wait for visible, hit target or static? Does it really make it more efficient? Do I ever want it?
+I don't think efficiency is a concern here. ",maybe-relevant
+833516739,5,0.5,all our decisions are around isolation and efficiency.,maybe-not-relevant
+845449740,5,1.0,"In case of objections, it may be worth to consider that selectors in testing have different efficiency requirements, lesser requirements, than CSS used for style, in part because it is a search for one element at a time, and not many style properties to be applied to many elements in very little time.",maybe-relevant
+1712670168,5,1.0,"While this feature might seem to deviate from the traditional flow of JavaScript execution and the design of Playwright, it would undoubtedly provide a more efficient debugging process for developers.",maybe-relevant
+135809173,5,1.0,Inefficiency in dotConnect hasOracleDriver() method...A more efficient implementation would call this method,maybe-relevant
+634958024,5,1.0,"From an efficiency standpoint, there are two types of indexing mechanisms: DEFER... is very performant. WAIT_FOR... there's a performance penalty involved, but the content indexing will be completely guaranteed.",maybe-relevant
+2145562965,5,0.5,The feature should reuse code from the Falcon team to ensure consistency and efficiency.,maybe-not-relevant
+2450536019,5,1.0,"Scalability and Performance
+By implementing efficient state management and event propagation:
+
+The system can handle growth in the number of subsystems and complexity
+Performance impacts of continuous health checking are minimized
+State queries and updates are optimized for high-concurrency environments",maybe-relevant
+2450926107,5,0.5,"Efficiency: Developers often spend unnecessary time formatting code or reviewing formatting changes in pull requests, taking focus away from actual functional changes.",maybe-not-relevant
+28735328,5,1.0,It is not hurting anything to leave it in but removing it would help efficiency and reduce server resources used.,maybe-relevant
+33394880,5,0.5,it would also have an impact on the overall efficiency of Jetpack Subscriptions,maybe-not-relevant
+41299035,5,1.0,Using strpos for substring find for (small) efficiency bump.,maybe-relevant
+167419849,5,1.0,But this truly a step backwards for usability and efficiency and makes me never want to install jetpack on another install.,maybe-relevant
+173806000,5,1.0,"In terms of clicks and/or efficiency, both of the new solutions are a step back.",maybe-relevant
+498285103,5,1.0,Very often node_modules are excluded from babel compilation for performance reasons.,maybe-relevant
+553785235,6,0.0,Is there a more fundamental re-architecture in PlayWright?,not-relevant
+554523461,6,0.0,,not-relevant
+571155001,6,0.0,,not-relevant
+599923463,6,1.0,Playwright has a very different approach and architecture from Selenium,maybe-relevant
+650812699,6,0.0,,not-relevant
+30402884,6,1.0,"Consider this architecture, where both the sender IP and load balancer IP addrs may be variable",maybe-relevant
+174616615,6,1.0,So DotConfig and User are not updating properly in the architecture we have right now.,maybe-relevant
+184530847,6,0.0,,not-relevant
+225106209,6,0.0,,not-relevant
+228058884,6,1.0,"A suggested pattern for enabling this would be to intercept all index API calls and inject a prefix into the index name, and stripping that prefix out when displaying in the dotCMS application (transparent to the app admins and developers). This prefix could use the existed unique CLUSTERID, which can also be set as a configuration parameter.
+Example architecture:",maybe-relevant
+30416286,6,1.0,"it's something we want, but implementation is still up in the air, and the underlying architecture has changed significantly in the interim.",maybe-relevant
+50454335,6,0.0,,not-relevant
+99433796,6,0.0,,not-relevant
+157657214,6,1.0,Need to finalise and implement an information architecture for the navigation we're happy with for v1 of the new Admin page.,maybe-relevant
+169421027,6,1.0,"Big deal for us because we've built an architecture that we can use for lots of things relatively soon, but not mega-huge for our users yet.",maybe-relevant
+94774422,6,1.0,"The architecture is:
+Web Client & iOS client -> Nginx which is terminating SSL -> Socket.io server",maybe-relevant
+783333786,6,1.0,"Struggling with sockets for almost an year, we decided to migrate to pub/sub architecture. ",maybe-relevant
+2450536019,7,1.0,"The implementation of the System State Service is a crucial step towards improving the overall stability, reliability, and adaptability of the DotCMS platform.",maybe-relevant
+1587942798,8,1.0,"it would be possible to deploy these on serverless solutions like AWS container images, essentially farming out tests to 100s parallel browsers at significantly lower costs and better reliability than third-party solutions.",maybe-relevant
+21454050,8,0.0,,not-relevant
+76491994,8,1.0,"This would greatly increase horizontal scalability.
+... The no session thing is an important option for large sites looking to easily scale out horizontally.",maybe-relevant
+153482411,8,1.0,"Great balance between simplicity, scalability and performance
+Documentation is very helpful
+Purpose built to store and report on huge amounts of web analytics
+A lot of practical capabilities, things like chproxy",maybe-relevant
+314755854,8,1.0,We need to prove the need from a scalability standpoint before adding a cache.,maybe-relevant
+2450536019,8,1.0,The system can handle growth in the number of subsystems and complexity,maybe-relevant
+807596822,8,1.0,A third pass would then changing how Tokens and Secrets are stored to allow for better scalability.,maybe-relevant
+535352525,9,1.0,We need these for basic keyboard functionality like ArrowUp and ArrowDown to work on WebKit for mac.,maybe-relevant
+554204152,9,0.0,,not-relevant
+555181112,9,1.0,Is wildcard functionality currently supported in setting permissions for browser contexts?,maybe-relevant
+555552159,9,0.0,,not-relevant
+565738216,9,0.0,,not-relevant
+3983651,9,1.0,Indications on the plugin's functionality are summarized in readMe.txt file,maybe-relevant
+4041619,9,0.0,,not-relevant
+4284413,9,0.0,,not-relevant
+4630126,9,0.0,,not-relevant
+4839437,9,1.0,Almost every piece of new functionality in dotCMS 2.1 needs to be run through an aesthetic filter,maybe-relevant
+24383510,9,1.0,That way it preserves the functionality in case the file gets included somewhere else.,maybe-relevant
+24448192,9,0.0,,not-relevant
+24942180,9,1.0,various schema tags could be added quite easily to that output with comparatively little additional markup (if VideoPress added that functionality).,maybe-relevant
+25007833,9,1.0,I am using the 'crosspost' functionality here. ,maybe-relevant
+25015181,9,0.5,"We also haven't made any changes to this functionality in the current development version, so the problem might come from another issue on your site.",maybe-not-relevant
+228723,9,1.0,"I'm not sure how to select which transports the client should try to use (i.e. ""don't try with websocket"").
+There is either need for such a functionality, or a need for its documentation",maybe-relevant
+279563,9,0.0,,not-relevant
+492620,9,1.0,"Applying for the moment since it fixes functionality, and adds a crucial missing part of functionality",maybe-relevant
+646342,9,0.0,,not-relevant
+650093,9,1.0,The client receives a disconnect event. We start our reconnect functionality and set the property reconnecting to true.,maybe-relevant
+528993963,10,1.0,"As a drive-by, it fixes all license headers for the files we added to WebKit.",maybe-relevant
+553919527,10,0.0,,not-relevant
+554318586,10,0.5,"""license"": ""MIT""",maybe-not-relevant
+554982761,10,1.0,"It is a free solution up to 4 parallel browsers, but requires a license if you need more.",maybe-relevant
+559189396,10,0.5,"""license"": ""ISC""",maybe-not-relevant
+4937446,10,1.0,just noticed that I don't have an EE license.,maybe-relevant
+5034688,10,1.0,Site Search is an dotCMS Enterprise only feature - even though i have a trial license,maybe-relevant
+5324160,10,1.0,"when you bring up a dotcms instance using an oracle or sql server db and you do NOT have an Enterprise license, the tag manager and category manager portlet do not display",maybe-relevant
+6552399,10,1.0,Applying new license doesn't enable scheduled workflow,maybe-relevant
+7826407,10,0.0,,not-relevant
+40408148,10,0.5,Creative Commons license (although this can be 3rd party plugin material),maybe-not-relevant
+144651925,10,1.0,"All the imagery I use comes from Unsplash (https://unsplash.com/license) – we can do anything with them, including for commercial work.",maybe-relevant
+152704354,10,1.0,"In China, we all know that we can host our sites outside China but larger companies with ICP licenses have to host their sites in China due to Chinese law.",maybe-relevant
+179185663,10,1.0,License: add license file to repository.,maybe-relevant
+212875885,10,1.0,Could you please change the license. I like to take some code but into a GPL-3.0 plugin.,maybe-relevant
+669902,10,1.0,so I had to convert all license headers to /**,maybe-relevant
+34669023,10,1.0,"Please add a license
+
+👍  Hoping to see MIT",maybe-relevant
+38564871,10,1.0,MIT License file isn't on the master branch,maybe-relevant
+38634403,10,1.0,I've added the licence bases on this source http://opensource.org/licenses/MIT ,maybe-relevant
+56373296,10,0.5,"""license"": ""ISC""",maybe-not-relevant
+554298149,11,0.0,,not-relevant
+560198548,11,0.0,,not-relevant
+609248581,11,0.0,,not-relevant
+640871361,11,1.0,"The test is like an E2E test, but the server is just a mock running in the local machine (so the cost of server side logic is very cheap).",maybe-relevant
+651005192,11,1.0,those SDKs will come at a maintenance cost.,maybe-relevant
+5012907,11,0.0,,not-relevant
+5735865,11,0.0,,not-relevant
+5822288,11,0.0,,not-relevant
+10800237,11,0.0,,not-relevant
+12294794,11,0.0,,not-relevant
+28264608,11,1.0,"The point is, I would much rather consolidate our costs into one product that does most everything we need rather than having to dish out for dozens of costly plugins.",maybe-relevant
+30891894,11,1.0,"3152833-t with over 12k emails in a month. For users who are offloading SMTP to a service like SendGrid, this is costing our customers/users real money.",maybe-relevant
+38159779,11,0.0,,not-relevant
+45632076,11,0.0,,not-relevant
+87535385,11,0.0,,not-relevant
+34561323,11,0.0,,not-relevant
+35462725,11,0.0,,not-relevant
+49807985,11,0.0,,not-relevant
+751163133,11,0.5,"this cost me 3 hours, where i had to look into the source",maybe-not-relevant
+1080421369,11,0.0,,not-relevant
+586477665,12,0.5,"we want to test not on global availability version, but for example on the specific release candidate",maybe-not-relevant
+593514030,12,0.5,We've been thinking about the lazy selectors that would resolve upon availability ,maybe-not-relevant
+599749303,12,0.0,,not-relevant
+677999161,12,1.0,"The script is used to check the state of chromium CDN, whereas
+our browser fetcher now defaults to Playwright CDN.",maybe-relevant
+681489053,12,0.0,,not-relevant
+31306813,12,1.0,"The only way to fix this is to stop the Dotcms instance, manually remove the h2db folder, and then to start the server again. It doesn't take long, but on a Dotcms instance with a lot of websites this means that for about 5 minutes (at least) all those websites aren't available.",maybe-relevant
+211174418,12,1.0,Our infrastructure for distributing traffic in a highly available fashion requires cookie lengths that are short and domain name assignments that are reconfigured based on global availability.,maybe-relevant
+263967612,12,1.0,"One or more components needed for core functionality has failed, and the system is not expected to service frontend or backend requests correctly.",maybe-relevant
+164348655,12,1.0,Wraps filters with conditional to verify function availability.,maybe-relevant
+177710645,12,0.0,,not-relevant
+191137202,12,0.0,,not-relevant
+203439429,12,0.0,,not-relevant
+215086665,12,1.0,"Add vaultpress key to readable settings endpoint representing with true an installed and active state and with false, an inactive or not installed state.",maybe-relevant
+626939206,13,0.5,improves type safety around polling.,maybe-not-relevant
+730244155,13,0.0,,not-relevant
+802274450,13,0.0,,not-relevant
+844285238,13,1.0,Playwright already has bypassCSP option that could be used to disable cors. As for the safety - in testing (which is our primary goal) it should be less of a problem since you usually run tests in a trusted/hermetic environment.,maybe-relevant
+1127912459,13,1.0,I'm altruistically putting all my love and energy into adding type safety to the open source ESM packages,maybe-relevant
+21454050,13,1.0,"In xstreamer site http://xstream.codehaus.org/faq.html#Scalability_Thread_safety is stated that xstream instances are thread safe as long as we don't use the annotation thing (that we don't use).
+...
+Turns out, instantiating xstream is not threadsafe. Using it to marshall/unmarshall is threadsafe, but not instantiating or configing it. We need to either have xstream set up as a singleton or as an object pool to avoid ConcurrentModification exceptions when performing multiple publishings.",maybe-relevant
+56578348,13,1.0,URLMapFilter.java code thread safety,maybe-relevant
+331735319,13,0.0,,not-relevant
+30270294,13,0.0,,not-relevant
+160705114,13,0.5,I chose json_encode() instead of serialize() because it a simpler standard and the conversion into a hash does not need to maintain type safety in the same way as a serialize implies.,maybe-not-relevant
+170695817,13,0.0,,not-relevant
+286466365,13,1.0,"As a result, this data should be escaped for safety. For example if the result contained -->, it could be used to output arbitrary HTML.",maybe-relevant
+293700712,13,0.0,,not-relevant
+1775034932,14,1.0,"This pull request improves the UI, functionality, and testability of the dot-experiments library, which provides the portlet for managing A/B testing experiments in dotCMS.",maybe-relevant
+1893191404,14,1.0,"Refactored some code to improve readability, conciseness, and testability.",maybe-relevant
+2481165229,14,1.0,Enhance the design with Context and Dependency Injection (CDI) for better modularity and testability.,maybe-relevant
+2629208423,14,1.0,"Benefits
+
+Standard Java EE component discovery
+Automatic dependency injection
+Improved testability
+Better integration with existing CDI infrastructure
+Reduced manual error-prone operations
+More maintainable codebase",maybe-relevant
+42054859,14,1.0,"While I can see no problems with the code and I certainly think that the more tests the better, I have one comment. Redefining methods in the Jetpack class only to be able to mock them in tests seems kinda backwards to me. Being unable to mock static methods is a known problem with PHPUnit, and it is a part of the wider static method testability problem, so it's possible that the code needs some refactoring.",maybe-relevant
+457704943,14,1.0,"This PR tries to figure out a good pattern for stateless utility classes which still allows for testability.
+... The goal was to allow us to insert mock objects in testing contexts while also allowing the convenience of calling Assets::get_file_url_for_environment statically without lots of instantiation.",maybe-relevant
+515673659,14,1.0,"Aside from that post, I believe we decided as a group that we would try our best to not mix up different types of methods within the same class, which will help with expectations, testability, and organization of the code.",maybe-relevant
+727474644,14,1.0,This PR replaces other dependencies in the Assets package with WroDBless for testing purposes. It simplifies what's needed to test the package and also improves the testability.,maybe-relevant
+664566149,15,1.0,The only thing left is execution time. I'll be happy if you can give me another hint.,maybe-relevant
+666586253,15,1.0,I'm struggling to overcome long execution time for multiple simultaneous requests.,maybe-relevant
+666910791,15,1.0,"I added waitForTimeout(2000) before taking a screenshot and problem has gone.
+Another possible solution is to set the slowMo parameter, but it will affect tests execution time. (I did not check this by many runs to be sure, but I used slowMo=100 with puppeteer before and had no problems).",maybe-relevant
+720893144,15,1.0,"Our execution time increased from 13min to 21min on CI, when we are using video().saveAs(...).",maybe-relevant
+744871226,15,0.5,Nope - Same machine - We're simply trying to reduce execution time by running scripts in parallel instead of series.,maybe-not-relevant
+39439183,15,0.0,,not-relevant
+160774566,15,1.0,"Replacing ""NOT IN"" by ""NOT EXISTS"" in the query executed by this fix task reduced the execution time from about 4 hours to about 2 seconds in a database with 293,751 inodes of type 'contentlet'.",maybe-relevant
+160795797,15,1.0,"Execution time went from about 4 hours to about 2 seconds in a database with 293,751 inodes of type 'contentlet'.",maybe-relevant
+163464376,15,1.0,Execution time needs to be reduced considerably.,maybe-relevant
+169216773,15,0.0,,not-relevant
+171287342,15,1.0,"Removes the count query from user sync, as it double execution time",maybe-relevant
+173008492,15,0.0,,not-relevant
+178943969,15,1.0,"Limit dequeue time to 15 seconds to avoid going over PHP execution timeout...Often PHP has a max execution time of 30 seconds... on some sites (particularly those that make RPC calls while rendering content) it can take longer, and in some of those cases it results in sync being permanently stuck.",maybe-relevant
+254717020,15,1.0,This change tells PHP to increase the local max_execution_time for the duration of the register() step so that WPCOM has more time to register the site.,maybe-relevant
+290009623,15,1.0,Improvements on execution time for the following tests,maybe-relevant
+322585859,15,0.5,Library socket.io-client is not compatible with latest Angular 6. There is error at execution time:,maybe-not-relevant
+1268728050,16,0.5,For reusability try https://playwright.dev/docs/test-fixtures fixtures,maybe-not-relevant
+1193834382,16,1.0," it has a lot of potential reusability by third parties. Unless, of course, we don't want them using it.",maybe-relevant
+979030581,17,1.0,Now our tests are similar to what we had previously when we were using Protractor and it takes less lines improving readability/maintainability.,maybe-relevant
+218608237,17,1.0,this Google Doc describes most of the requirements implemented along with additionally introduced stability/maintainability fixes/improvements.,maybe-relevant
+2450926107,17,1.0,"Improving code readability and maintainability...This initiative represents a short-term investment for long-term gains in code quality, developer efficiency, and project maintainability.
+Benefits
+For Developers:
+
+Reduced time spent on manual formatting
+Easier code reviews focused on logic, not style
+Fewer merge conflicts due to formatting differences
+Improved readability and maintainability of code",maybe-relevant
+2629208423,17,1.0,Replace the current Jandex-based JobProcessor discovery mechanism with a standard CDI-based approach to improve maintainability and align with Java EE standards.,maybe-relevant
+164622966,17,1.0,"And also refactors full sync functionality into the existing modules, which hopefully adds readability and maintainability.",maybe-relevant
+357371789,17,1.0,"So, I've changed the individual inline annotations to a file-based annotation for easier maintenance.",maybe-relevant
+376898299,17,1.0,"Kicked off a PR for the sake of testing. I would generally trust Core's long-term maintainability of oEmbed's that they support, so want to try first just removing our handler.
+",maybe-relevant
+599599877,17,1.0,moving components into their own files to make maintainability better,maybe-relevant
+847848705,17,1.0,"This PR adds unit and block fixture parsing tests to the Subscriptions block, and refactors the block for maintainability and to make it more testable.",maybe-relevant
+498285103,17,0.5,I think I've said my piece here. Sorry my decision to improve the maintainability of a module downloaded nearly 60 million times a week doesn't fit your business model.,maybe-not-relevant
+555017174,18,1.0,We could be doing more to help people with compatibility between the playwright package version and the specific branded browser they have.,maybe-relevant
+555546366,18,1.0,"Currently, playwright-core is guaranteed to work only with Chrome 81 - which is Chrome Canary. Puppeteer has a compatibility table to match puppeteer-core versions against separately-installed browser versions.
+
+
+
+
+
+
+
+",maybe-relevant
+570117009,18,1.0,I think compatibility between playwright and msw should be a pretty important consideration in playwright development.,maybe-relevant
+570832604,18,0.5,"Later on, we can validate our api.md against this interface instead of implementation, because typescript should check the interface <-> implementation compatibility for us.",maybe-not-relevant
+571155001,18,1.0,"It's not really what you want, but the Onslip Automation Library I've mentioned here before recently gained compatibility with @playwright/test, enabling E2E testing on real (from ancient to modern) Android and iOS devices plus Android emulators via Playwright Test (unfortunately no Simulator support yet).",maybe-relevant
+5712615,18,0.0,,not-relevant
+8359922,18,0.0,,not-relevant
+8731467,18,0.0,,not-relevant
+8771029,18,0.0,,not-relevant
+8952986,18,0.0,,not-relevant
+24604880,18,1.0,"Couldn't this break backward compatibility with something expecting the caption to come in as an argument to the shortcode, rather than just appended to the contents?",maybe-relevant
+26240046,18,1.0,"I agree that your version makes more sense but for backwards compatibility I would keep the apply_filters('grunion_contact_form_field_html') in the render function after defining $r, an old theme could be expecting that value.",maybe-relevant
+27306584,18,1.0,"The show_subject attribute is there for backward compatibility, and I don't think something we're actively supporting.",maybe-relevant
+28925562,18,1.0,improve compatibility with bbPress' Forums root...It's currently not possible to apply any Widget conditions to that particular page. We should see about adding extra rules using bbPress' conditional tags when bbPress is active.,maybe-relevant
+29326365,18,1.0,"Add compatibility for WP 3.9 Widget Customizer
+... The method that Widget Visibility uses to force a widget wide, however, does not work in the customizer, since widgets cannot be left-overhanging.",maybe-relevant
+1412909,18,1.0,"that is a other issues than this, this was web socket spec compatibility and that was added.",maybe-relevant
+2242432,18,1.0,"The issue is not compatibility, it is pollution. Most loaders can handle plain old JavaScript files, but the issue remains that they pollute the global scope. ",maybe-relevant
+2457994,18,1.0,If you guys would accept something like this I'll do the work with full compatibility and tests.,maybe-relevant
+36975564,18,1.0,Of course this breaks SSL compatibility for XMLHttpRequests.,maybe-relevant
+37747998,18,1.0,Are there plans to provide support for component.js? Would rather see this implemented here than a fork of the code.,maybe-relevant
+558608874,20,0.0,,not-relevant
+9276280,20,0.0,,not-relevant
+525205531,2,1.0,We should have something like compat tables in the api docs.,maybe-relevant
+533665625,2,1.0,"These new types include private stuff that they probably shouldn't, and are missing documentation.",maybe-relevant
+553975941,2,1.0,This change edits the suggested documentation message so that it points to a valid URL.,maybe-relevant
+554822353,2,1.0,"We can have different defaults externally vs internally (e.g. ElementHandle wrapping HTMLElement by default), have short documentation attached to be shown in IDEs, and not pollute types with internal methods starting with underscore.",maybe-relevant
+554883000,2,1.0,"You can send a PR editing documentation source, it will be reflected on playwright.dev.",maybe-relevant
+4256125,2,1.0,About documentation to add please be more clear.,maybe-relevant
+4426906,2,1.0,We offer a way to search the codeshare site and/or documentation site for help,maybe-relevant
+4458814,2,0.0,,not-relevant
+4649277,2,0.0,,not-relevant
+4705104,2,0.0,,not-relevant
+24430363,2,0.0,,not-relevant
+24432494,2,0.0,,not-relevant
+26564295,2,1.0,Leave a note for the Jetpack Happiness Engineers on how the git submodule works so they can update support documentation,maybe-relevant
+27290722,2,0.0,,not-relevant
+28264608,2,0.0,,not-relevant
+228723,2,1.0,"There is either need for such a functionality, or a need for its documentation on http://socket.io/",maybe-relevant
+671665,2,1.0,"I cannot find anything in the documentation but I am sure that a port is required to access anything in the ""/socket.io"" directory of the domain as per the installation instructions.",maybe-relevant
+679366,2,1.0,any documentation on how to do this?,maybe-relevant
+942690,2,1.0,From the only documentation I see (readme.md) I cannot tell which timeout I'd need to set here.,maybe-relevant
+1103129,2,0.5,The documentation says,maybe-not-relevant

@@ -1,0 +1,9 @@
+torch 
+transformers 
+pandas 
+python-dotenv 
+sqlalchemy
+protobuf
+tiktoken
+SentencePiece
+accelerate
