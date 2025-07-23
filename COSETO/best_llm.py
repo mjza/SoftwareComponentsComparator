@@ -158,8 +158,11 @@ def max_text_tokens(tokenizer, hypotheses):
     # 2.Include any special tokens (like EOS)
     # 3.Avoid accidental truncation by pushing the prompt right up to the model's maximum length
     safety = 8
-    
-    return max(32, tokenizer.model_max_length - len(ids) - safety)   
+
+    # Clamp for LLaMA-3 weird tokenizer behavior
+    max_len = min(getattr(tokenizer, "model_max_length", 4096), 8192)
+
+    return max(32, max_len - len(ids) - safety)
 # End of max_text_tokens function
 
 
