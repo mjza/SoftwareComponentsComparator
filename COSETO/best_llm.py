@@ -41,15 +41,15 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 # The models are expected to be capable of generating responses that can be classified as "yes" or "no" based on the hypotheses.
 # The models are expected to be capable of handling the input text and hypotheses in a structured manner.
 models = [
-    #'meta-llama/Llama-3.1-8B-Instruct',
-    #'meta-llama/Meta-Llama-3-8B-Instruct',
-    'meta-llama/Llama-2-70b-chat-hf',
+    'meta-llama/Llama-3.1-8B-Instruct',
+    'meta-llama/Meta-Llama-3-8B-Instruct',    
     'tiiuae/falcon-40b-instruct',
-    #'tiiuae/falcon-7b-instruct',
-    #'mistralai/Mistral-7B-Instruct-v0.3',
-    #'deepseek-ai/deepseek-coder-6.7b-instruct',
-    #'microsoft/Phi-3-mini-4k-instruct',
-    #'Qwen/Qwen1.5-7B-Chat', 
+    'tiiuae/falcon-7b-instruct',
+    'mistralai/Mistral-7B-Instruct-v0.3',
+    'deepseek-ai/deepseek-coder-6.7b-instruct',
+    'microsoft/Phi-3-mini-4k-instruct',
+    'Qwen/Qwen1.5-7B-Chat', 
+    'meta-llama/Llama-2-70b-chat-hf',
 ]
 
 # Function to fetch data from the database

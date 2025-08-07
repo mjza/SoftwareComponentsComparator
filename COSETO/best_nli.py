@@ -41,8 +41,7 @@ nli_models = [
     'microsoft/deberta-v3-large',    
     'google-t5/t5-base',
     'cross-encoder/nli-roberta-base',
-    'FacebookAI/roberta-large-mnli', 
-    
+    'FacebookAI/roberta-large-mnli',
 ]
 
 # Define chunking strategies
