@@ -42,8 +42,7 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 # The models are expected to be capable of handling the input text and hypotheses in a structured manner.
 models = [
     'meta-llama/Llama-3.1-8B-Instruct',
-    'meta-llama/Meta-Llama-3-8B-Instruct',    
-    'tiiuae/falcon-40b-instruct',
+    'meta-llama/Meta-Llama-3-8B-Instruct',
     'tiiuae/falcon-7b-instruct',
     'mistralai/Mistral-7B-Instruct-v0.3',
     'deepseek-ai/deepseek-coder-6.7b-instruct',
