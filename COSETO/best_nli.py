@@ -322,6 +322,39 @@ def ensure_nli_metrics_table_exists():
             print("✅ Table already exists: nli_metrics_results")
 # End of ensure_nli_metrics_table_exists function
 
+# Function to check if a result already exists in the database
+# This function checks if a result for the given combination of attribute_id, model_name, hypothesis_version,
+# aggregation_logic, chunking_strategy, threshold_config, and max_tokens already exists in the `nli_metrics_results` table.
+# It returns True if a result exists, otherwise False.
+def check_if_exists(attribute_id, model_name, hypothesis_version,
+                    aggregation_logic, chunking_strategy,
+                    threshold_config):
+    """
+    Check if a result for the given combination already exists in the nli_metrics_results table.
+    """
+    with engine.begin() as conn:
+        result = conn.execute(text("""
+            SELECT 1
+            FROM nli_metrics_results
+            WHERE attribute_id = :attribute_id
+              AND model = :model
+              AND chunking_strategy = :chunking_strategy
+              AND threshold_config = :threshold_config
+              AND hypothesis_version = :hypothesis_version
+              AND aggregation_logic = :aggregation_logic
+            LIMIT 1
+        """), {
+            "attribute_id": attribute_id,
+            "model": model_name,
+            "chunking_strategy": chunking_strategy,
+            "threshold_config": threshold_config,
+            "hypothesis_version": hypothesis_version,
+            "aggregation_logic": aggregation_logic
+        })
+
+        return result.fetchone() is not None
+# End of check_if_exists function
+
 # Function to store metrics in the database
 # This function inserts or updates the evaluation metrics in the database.
 # It uses an SQL INSERT statement with ON CONFLICT to handle duplicate entries based on the attribute_id, model, chunking_strategy, threshold_config, hypothesis_version, max_tokens, and aggregation_logic.
@@ -423,6 +456,25 @@ def evaluate_nlis():
                             hypothesis_sets = generate_hypothesis_sets(attr_name, definition, related_words)
 
                             for hypothesis_version, hypotheses in enumerate(hypothesis_sets):
+
+                                hypothesis_version_name = f"v{hypothesis_version}"
+
+                                # Check for all aggregations before doing any processing
+                                all_done = True
+                            
+                                if not check_if_exists(
+                                    attribute_id=attr_id,
+                                    model_name=model_name,
+                                    hypothesis_version=hypothesis_version_name,
+                                    aggregation_logic=aggregation_logic,
+                                    chunking_strategy=chunk_strategy,
+                                    threshold_config=thresholds
+                                ):
+                                    all_done = False
+
+                                if all_done:
+                                    print(f"✅ Skipping: {attr_name} ({hypothesis_version_name}) – All aggregations already done")
+                                    continue
                             
                                 start_time = time.time()
 
@@ -448,12 +500,12 @@ def evaluate_nlis():
                                 # Store results                                
                                 store_metrics(
                                     attr_id, attr_name, model_name,
-                                    chunk_strategy, thresholds, f"v{hypothesis_version}",
+                                    chunk_strategy, thresholds, hypothesis_version_name,
                                     max_tokens, aggregation_logic,
                                     precision, recall, specificity, accuracy, f1_score, duration_seconds
                                 )    
 
-                                print(f"✅ Stored: Model {model_name}, Attr {attr_name}, Hypo v{hypothesis_version}, F1: {f1_score:.4f}")
+                                print(f"✅ Stored: Model {model_name}, Attr {attr_name}, Hypo {hypothesis_version_name}, F1: {f1_score:.4f}")
 
 # End of main function                           
 if __name__ == "__main__":
