@@ -37,9 +37,9 @@ device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cp
 # The models are expected to be pre-trained and fine-tuned on relevant datasets for NLI tasks.
 # The models are expected to be compatible with the Hugging Face Transformers library.
 nli_models = [
-    'MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli',
-    'microsoft/deberta-v3-large',    
-    'google-t5/t5-base',
+    #'MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli',
+    #'microsoft/deberta-v3-large',    
+    #'google-t5/t5-base',
     'cross-encoder/nli-roberta-base',
     'FacebookAI/roberta-large-mnli',
 ]
@@ -75,7 +75,7 @@ threshold_configs = [
 max_tokens_list = [128, 
                    256,
                    512, 
-                   1024 # does not work for 'cross-encoder/nli-roberta-base' and 'FacebookAI/roberta-large-mnli'
+                   #1024 # does not work for 'cross-encoder/nli-roberta-base' and 'FacebookAI/roberta-large-mnli'
                    ]
 
 # Define aggregation logics
@@ -327,11 +327,7 @@ def ensure_nli_metrics_table_exists():
 # aggregation_logic, chunking_strategy, threshold_config, and max_tokens already exists in the `nli_metrics_results` table.
 # It returns True if a result exists, otherwise False.
 def check_if_exists(attribute_id, model_name, hypothesis_version,
-                    aggregation_logic, chunking_strategy,
-                    threshold_config):
-    """
-    Check if a result for the given combination already exists in the nli_metrics_results table.
-    """
+                    aggregation_logic, chunking_strategy, threshold_config, max_tokens):
     with engine.begin() as conn:
         result = conn.execute(text("""
             SELECT 1
@@ -342,16 +338,17 @@ def check_if_exists(attribute_id, model_name, hypothesis_version,
               AND threshold_config = :threshold_config
               AND hypothesis_version = :hypothesis_version
               AND aggregation_logic = :aggregation_logic
+              AND max_tokens = :max_tokens
             LIMIT 1
         """), {
             "attribute_id": attribute_id,
             "model": model_name,
             "chunking_strategy": chunking_strategy,
-            "threshold_config": threshold_config,
+            "threshold_config": str(threshold_config),   # ✅ serialize like insert
             "hypothesis_version": hypothesis_version,
-            "aggregation_logic": aggregation_logic
+            "aggregation_logic": aggregation_logic,
+            "max_tokens": max_tokens                     # ✅ keep in sync with unique index
         })
-
         return result.fetchone() is not None
 # End of check_if_exists function
 
@@ -468,7 +465,8 @@ def evaluate_nlis():
                                     hypothesis_version=hypothesis_version_name,
                                     aggregation_logic=aggregation_logic,
                                     chunking_strategy=chunk_strategy,
-                                    threshold_config=thresholds
+                                    threshold_config=thresholds,
+                                    max_tokens=max_tokens
                                 ):
                                     all_done = False
 
